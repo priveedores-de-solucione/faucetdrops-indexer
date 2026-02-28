@@ -37,7 +37,7 @@ class FaucetMetaResponse(BaseModel):
     owner_address: Optional[str]
     start_time: Optional[int]
     updated_at: Optional[str]
-
+    slug: Optional[str] 
 
 class FaucetDetailResponse(BaseModel):
     faucet_address: str
@@ -58,6 +58,7 @@ class FaucetDetailResponse(BaseModel):
     is_paused: bool
     owner_address: Optional[str]
     use_backend: bool
+    slug: Optional[str]
     image_url: Optional[str]
     description: Optional[str]
     updated_at: Optional[str]
@@ -454,7 +455,11 @@ def _get_all_faucets_from_factory(w3: Web3, factory_cs: str) -> List[str]:
             continue
     return []
 
-
+def _make_slug(name: str, address: str) -> str:
+    import re
+    name_part = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    addr_suffix = address.lower()[-4:]   # always appended for uniqueness
+    return f"{name_part}-{addr_suffix}" if name_part else addr_suffix
 # ====================== FAUCET DETAIL FETCHER ======================
 
 def fetch_faucet_details_sync(
@@ -481,7 +486,7 @@ def fetch_faucet_details_sync(
         is_claim_active = _safe_call(contract, "isClaimActive") or False
         is_paused       = _safe_call(contract, "paused")        or False
         use_backend     = _safe_call(contract, "useBackend")    or False
-
+        
         balance_tuple = _safe_call(contract, "getFaucetBalance")
         balance   = str(balance_tuple[0]) if balance_tuple else "0"
         is_ether  = bool(balance_tuple[1]) if balance_tuple else False
@@ -517,6 +522,7 @@ def fetch_faucet_details_sync(
             "is_paused":       is_paused,
             "owner_address":   owner.lower() if owner else "",
             "use_backend":     use_backend,
+            "slug":            _make_slug(name, faucet_address),
             "image_url":       "",
             "description":     "",
         }
@@ -678,8 +684,7 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
 async def refresh_network_faucets():
     """
     Crawls every chain → every typed factory → every faucet.
-    Writes to `network_faucets` (meta) and `faucet_details` (full) in Supabase.
-    Evicts deleted faucets from both tables.
+    Writes slug to both `network_faucets` and `faucet_details` in Supabase.
     """
     print(f"🔄 [refresh_network_faucets] started at {datetime.utcnow()}")
 
@@ -732,6 +737,7 @@ async def refresh_network_faucets():
                     "factory_address": factory_addr.lower(),
                     "factory_type":    factory_type,
                     "faucet_name":     detail["faucet_name"],
+                    "slug":            detail["slug"],     # ← NEW
                     "token_symbol":    detail["token_symbol"],
                     "is_ether":        detail["is_ether"],
                     "is_claim_active": detail["is_claim_active"],
@@ -747,11 +753,11 @@ async def refresh_network_faucets():
                     supabase.table("network_faucets").upsert(chunk, on_conflict="faucet_address").execute()
                 for chunk in _chunks(detail_rows, 100):
                     supabase.table("faucet_details").upsert(chunk, on_conflict="faucet_address").execute()
-                print(f"   ✅ {cfg['name']}: saved {len(meta_rows)} faucets")
+                print(f"   ✅ {cfg['name']}: saved {len(meta_rows)} faucets with slugs")
             except Exception as e:
                 print(f"   ⚠️  {cfg['name']}: Supabase upsert failed — {e}")
 
-    # Evict deleted faucets from both tables
+    # Evict deleted faucets
     if supabase and deleted_set:
         for addr in deleted_set:
             try:
