@@ -1216,19 +1216,20 @@ async def manual_refresh():
 @app.on_event("startup")
 async def startup():
     global dashboard_data
+    print("🚀 [Startup] API is coming online...")
+    
     if supabase:
         try:
+            # 1. Load whatever we have in the DB immediately so the UI isn't empty
             cached = load_from_supabase()
             if cached:
                 dashboard_data = cached
-                print("✅ Loaded dashboard data from Supabase cache")
-            else:
-                print("⚠️  No Supabase cache found, running initial refresh...")
-                await refresh_all_data()
+                print("✅ [Startup] Loaded initial data from Supabase")
         except Exception as e:
-            print(f"⚠️  Supabase load failed on startup: {e}")
+            print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
 
-    # Both jobs run in background
+    # 2. DO NOT 'await' these. Create them as background tasks.
+    # This allows the API to return "Ready" to Render in milliseconds.
     asyncio.create_task(refresh_all_data())
     asyncio.create_task(refresh_network_faucets())
 
