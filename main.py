@@ -458,8 +458,44 @@ def _get_all_faucets_from_factory(w3: Web3, factory_cs: str) -> List[str]:
 def _make_slug(name: str, address: str) -> str:
     import re
     name_part = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    addr_suffix = address.lower()[-4:]   # always appended for uniqueness
+    addr_suffix = address.lower()[-4:]
     return f"{name_part}-{addr_suffix}" if name_part else addr_suffix
+
+
+# ====================== TOKEN SYMBOL RESOLVER ======================
+
+def resolve_token_symbol(
+    w3: Web3,
+    token_addr: str,
+    is_ether: bool,
+    chain_id: int,
+) -> tuple[str, int]:
+    """
+    Returns (token_symbol, token_decimals).
+
+    Resolution order:
+      1. Native ETH/BNB/CELO/AVAX  → from NATIVE_SYMBOLS map
+      2. ERC-20 token               → call symbol() + decimals() on-chain
+      3. Fallback                   → "TOKEN" / 18
+    """
+    zero_addr = "0x0000000000000000000000000000000000000000"
+
+    if is_ether or token_addr.lower() == zero_addr:
+        return NATIVE_SYMBOLS.get(chain_id, "ETH"), 18
+
+    try:
+        tok = w3.eth.contract(
+            address=w3.to_checksum_address(token_addr),
+            abi=ERC20_ABI,
+        )
+        symbol   = _safe_call(tok, "symbol")   or "TOKEN"
+        decimals = _safe_call(tok, "decimals") or 18
+        return str(symbol), int(decimals)
+    except Exception as e:
+        print(f"      ⚠️  resolve_token_symbol({token_addr}): {e}")
+        return "TOKEN", 18
+
+
 # ====================== FAUCET DETAIL FETCHER ======================
 
 def fetch_faucet_details_sync(
@@ -469,6 +505,13 @@ def fetch_faucet_details_sync(
     factory_type: str,
     chain_id: int,
 ) -> Optional[Dict]:
+    """
+    Fetches all on-chain faucet state and returns a fully-populated dict
+    ready for upsert into the `faucet_details` Supabase table.
+
+    Token resolution is handled by resolve_token_symbol(), which correctly
+    distinguishes native assets (ETH/BNB/CELO/AVAX) from ERC-20 tokens.
+    """
     try:
         checksum = w3.to_checksum_address(faucet_address)
         contract = w3.eth.contract(address=checksum, abi=FAUCET_ABI)
@@ -486,22 +529,20 @@ def fetch_faucet_details_sync(
         is_claim_active = _safe_call(contract, "isClaimActive") or False
         is_paused       = _safe_call(contract, "paused")        or False
         use_backend     = _safe_call(contract, "useBackend")    or False
-        
+
         balance_tuple = _safe_call(contract, "getFaucetBalance")
-        balance   = str(balance_tuple[0]) if balance_tuple else "0"
-        is_ether  = bool(balance_tuple[1]) if balance_tuple else False
+        balance  = str(balance_tuple[0]) if balance_tuple else "0"
+        is_ether = bool(balance_tuple[1]) if balance_tuple else False
 
-        token_symbol   = NATIVE_SYMBOLS.get(chain_id, "ETH") if is_ether else "TOKEN"
-        token_decimals = 18
-        zero_addr      = "0x0000000000000000000000000000000000000000"
+        # ── Resolve token symbol + decimals (always calls on-chain for ERC-20s)
+        token_symbol, token_decimals = resolve_token_symbol(
+            w3, str(token_addr), is_ether, chain_id
+        )
 
-        if not is_ether and token_addr.lower() != zero_addr:
-            try:
-                tok = w3.eth.contract(address=w3.to_checksum_address(token_addr), abi=ERC20_ABI)
-                token_symbol   = _safe_call(tok, "symbol")   or token_symbol
-                token_decimals = _safe_call(tok, "decimals") or 18
-            except Exception:
-                pass
+        print(
+            f"      🪙  {checksum[:10]}... token={token_addr[:10]}... "
+            f"is_ether={is_ether} → symbol={token_symbol} decimals={token_decimals}"
+        )
 
         return {
             "faucet_address":  faucet_address.lower(),
@@ -510,9 +551,9 @@ def fetch_faucet_details_sync(
             "factory_address": factory_address.lower(),
             "factory_type":    factory_type,
             "faucet_name":     name,
-            "token_address":   token_addr.lower(),
-            "token_symbol":    token_symbol,
-            "token_decimals":  int(token_decimals),
+            "token_address":   str(token_addr).lower(),
+            "token_symbol":    token_symbol,      # ← resolved symbol (CELO/ETH/BNB/USDC/…)
+            "token_decimals":  token_decimals,    # ← resolved decimals
             "is_ether":        is_ether,
             "balance":         balance,
             "claim_amount":    str(claim_amount),
@@ -557,24 +598,13 @@ async def _enrich_with_metadata(rows: List[Dict]) -> List[Dict]:
 # ====================== SUPABASE SAVE HELPER ======================
 
 def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
-    """
-    Persists ALL dashboard fields to Supabase so the frontend can
-    read them directly without going through the backend at all.
-
-    Tables written:
-      faucet_data      — network → faucet count + chain_id + color
-      user_data        — date → new_users + cumulative_users
-      claim_data       — per-faucet claims + total_transactions + rank
-      network_tx_data  — network → total_transactions + chain_id + color
-      dashboard_meta   — single-row snapshot of scalar totals + last_updated
-    """
     if not supabase:
         return
 
     now_iso = data.get("last_updated") or datetime.utcnow().isoformat()
 
     try:
-        # ── 1. faucet_data (network counts) ──────────────────────────────────
+        # ── 1. faucet_data ────────────────────────────────────────────────────
         faucet_rows = [
             {
                 "network":  item["network"],
@@ -590,7 +620,7 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
         for chunk in _chunks(faucet_rows, 100):
             supabase.table("faucet_data").upsert(chunk, on_conflict="network").execute()
 
-        # ── 2. user_data (per-date new + cumulative users) ───────────────────
+        # ── 2. user_data ──────────────────────────────────────────────────────
         user_rows = [
             {
                 "date":             item["date"],
@@ -602,31 +632,26 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
         for chunk in _chunks(user_rows, 100):
             supabase.table("user_data").upsert(chunk, on_conflict="date").execute()
 
-        # ── 3. claim_data (per-faucet stats — NOW includes total_transactions) 
+        # ── 3. claim_data ─────────────────────────────────────────────────────
         claim_rows = [
             {
-                "faucet_address":    item["faucetAddress"],
-                "faucet_name":       item["faucetName"],
-                "network":           item["network"],
-                "chain_id":          item["chainId"],
-                "rank":              item["rank"],
-                "claims":            item["totalClaims"],
-                "total_transactions": item["totalClaims"],   # same as claims for now; extend later
-                "total_amount":      "0",
-                "latest_claim_time": item["latestClaimTime"],
-                "updated_at":        now_iso,
+                "faucet_address":     item["faucetAddress"],
+                "faucet_name":        item["faucetName"],
+                "network":            item["network"],
+                "chain_id":           item["chainId"],
+                "rank":               item["rank"],
+                "claims":             item["totalClaims"],
+                "total_transactions": item["totalClaims"],
+                "total_amount":       "0",
+                "latest_claim_time":  item["latestClaimTime"],
+                "updated_at":         now_iso,
             }
             for item in data["faucet_rankings"]
         ]
         for chunk in _chunks(claim_rows, 100):
             supabase.table("claim_data").upsert(chunk, on_conflict="faucet_address").execute()
 
-        # ── 4. network_tx_data (per-network transaction totals) ──────────────
-        #    This is a NEW table — create it in Supabase if it doesn't exist:
-        #    CREATE TABLE network_tx_data (
-        #      network TEXT PRIMARY KEY, total_transactions INT,
-        #      chain_id INT, color TEXT, updated_at TIMESTAMPTZ
-        #    );
+        # ── 4. network_tx_data ────────────────────────────────────────────────
         net_tx_rows = [
             {
                 "network":            item["name"],
@@ -640,13 +665,7 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
         for chunk in _chunks(net_tx_rows, 100):
             supabase.table("network_tx_data").upsert(chunk, on_conflict="network").execute()
 
-        # ── 5. dashboard_meta (scalar totals snapshot) ───────────────────────
-        #    CREATE TABLE dashboard_meta (
-        #      id INT PRIMARY KEY DEFAULT 1,
-        #      total_claims INT, total_unique_users INT,
-        #      total_faucets INT, total_transactions INT,
-        #      last_updated TIMESTAMPTZ
-        #    );
+        # ── 5. dashboard_meta ─────────────────────────────────────────────────
         supabase.table("dashboard_meta").upsert(
             {
                 "id":                 1,
@@ -661,9 +680,7 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
 
         print(f"✅ [save_dashboard_to_supabase] all tables updated at {now_iso}")
 
-        # ── 6. Evict deleted faucets from dashboard tables ───────────────────
-        # Fetch the current deleted list and remove any stale rows so deleted
-        # faucets don't linger in claim_data / faucet stats.
+        # ── 6. Evict deleted faucets ──────────────────────────────────────────
         try:
             r = requests.get("https://faucetdrop-backend.onrender.com/deleted-faucets", timeout=5)
             if r.ok:
@@ -684,7 +701,8 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
 async def refresh_network_faucets():
     """
     Crawls every chain → every typed factory → every faucet.
-    Writes slug to both `network_faucets` and `faucet_details` in Supabase.
+    Resolves the on-chain token symbol for each faucet and writes it to
+    both `network_faucets` (meta) and `faucet_details` in Supabase.
     """
     print(f"🔄 [refresh_network_faucets] started at {datetime.utcnow()}")
 
@@ -730,6 +748,9 @@ async def refresh_network_faucets():
                     continue
 
                 detail_rows.append(detail)
+
+                # ── Meta row: includes token_symbol so the listing views
+                #    can show e.g. "USDC" without fetching faucet_details
                 meta_rows.append({
                     "faucet_address":  detail["faucet_address"],
                     "chain_id":        chain_id,
@@ -737,8 +758,9 @@ async def refresh_network_faucets():
                     "factory_address": factory_addr.lower(),
                     "factory_type":    factory_type,
                     "faucet_name":     detail["faucet_name"],
-                    "slug":            detail["slug"],     # ← NEW
-                    "token_symbol":    detail["token_symbol"],
+                    "slug":            detail["slug"],
+                    "token_symbol":    detail["token_symbol"],   # ← resolved symbol
+                    "token_decimals":  detail["token_decimals"], # ← resolved decimals
                     "is_ether":        detail["is_ether"],
                     "is_claim_active": detail["is_claim_active"],
                     "owner_address":   detail["owner_address"],
@@ -753,11 +775,12 @@ async def refresh_network_faucets():
                     supabase.table("network_faucets").upsert(chunk, on_conflict="faucet_address").execute()
                 for chunk in _chunks(detail_rows, 100):
                     supabase.table("faucet_details").upsert(chunk, on_conflict="faucet_address").execute()
-                print(f"   ✅ {cfg['name']}: saved {len(meta_rows)} faucets with slugs")
+                print(f"   ✅ {cfg['name']}: saved {len(meta_rows)} faucets "
+                      f"(token symbols resolved: {sum(1 for d in detail_rows if d.get('token_symbol') not in ('TOKEN', ''))} distinct)")
             except Exception as e:
                 print(f"   ⚠️  {cfg['name']}: Supabase upsert failed — {e}")
 
-    # Evict deleted faucets
+    # Evict deleted faucets from both tables
     if supabase and deleted_set:
         for addr in deleted_set:
             try:
@@ -780,11 +803,8 @@ async def refresh_all_data():
     network_stats        = []
     network_faucets_list = []
     unique_users: set    = set()
-    faucet_stats         = {}   # only NON-deleted faucets tracked here (for claims/count)
+    faucet_stats         = {}
 
-    # ── Fetch deleted set ONCE up front ─────────────────────────────────────
-    # Rule: deleted faucets are excluded from faucet counts and claim stats,
-    #       but their historical transactions are still counted in tx totals.
     deleted = await fetch_deleted_faucets()
     print(f"   🗑️  Deleted faucets to exclude from counts/claims: {len(deleted)}")
 
@@ -800,8 +820,8 @@ async def refresh_all_data():
             network_faucets_list.append({"network": chain_name, "faucets": 0})
             continue
 
-        chain_tx_count     = 0   # ALL txs including from deleted faucets
-        chain_faucet_count = 0   # only NON-deleted faucets
+        chain_tx_count     = 0
+        chain_faucet_count = 0
         chain_claim_txs    = []
 
         for factory_addr in cfg["factoryAddresses"]:
@@ -817,16 +837,12 @@ async def refresh_all_data():
                 factory_txs      = data_a
                 faucet_addresses = data_b
 
-                # ✅ Count ALL transactions (including from deleted faucets)
                 chain_tx_count += len(factory_txs)
-
-                # Collect claim txs — will filter deleted faucets below
                 claims = [tx for tx in factory_txs if "claim" in str(tx[1]).lower()]
                 chain_claim_txs.extend(claims)
                 label = "QUEST" if contract_type == "quest" else "FACTORY"
                 print(f"   📋 {chain_name}/{addr_checksum[:10]}... {label}: {len(factory_txs)} txs, {len(claims)} claims")
 
-                # ✅ Count only NON-deleted faucets
                 for faucet_raw in faucet_addresses:
                     faucet_cs = safe_checksum(w3, faucet_raw)
                     if not faucet_cs:
@@ -850,11 +866,9 @@ async def refresh_all_data():
                 participants = data_b
                 addr_lower   = addr_checksum.lower()
 
-                # ✅ Always count checkin txs regardless of deleted status
                 chain_tx_count += tx_count
 
                 if addr_lower not in deleted:
-                    # Only count as a faucet + track participants if NOT deleted
                     chain_faucet_count += 1
                     before = len(unique_users)
                     unique_users.update(participants)
@@ -873,7 +887,6 @@ async def refresh_all_data():
             else:
                 print(f"   ❓ {chain_name}/{addr_checksum[:10]}... unknown, skipping")
 
-        # ── Process claim txs — filter deleted faucets for CLAIMS only ──────
         for tx in chain_claim_txs:
             faucet_cs = safe_checksum(w3, str(tx[0]))
             if not faucet_cs:
@@ -881,7 +894,6 @@ async def refresh_all_data():
             addr_lower = faucet_cs.lower()
 
             if addr_lower in deleted:
-                # ✅ Deleted faucet: skip its claims but its txs were already counted above
                 continue
 
             claimer_cs = safe_checksum(w3, str(tx[2]))
@@ -897,7 +909,6 @@ async def refresh_all_data():
             faucet_stats[addr_lower]["claims"] += 1
             faucet_stats[addr_lower]["latest"]  = max(faucet_stats[addr_lower]["latest"], int(tx[5]))
 
-        # ── Checkin fallback for faucets with no claims yet ──────────────────
         for addr_lower, stats in faucet_stats.items():
             if stats["chainId"] != chain_id or stats["claims"] > 0 or stats["checkin_txs"] > 0:
                 continue
@@ -956,10 +967,10 @@ async def refresh_all_data():
     sorted_by_claims = sorted(faucet_stats.items(), key=lambda x: x[1]["claims"], reverse=True)
     pie = [
         {
-            "name":         stats["name"],
-            "value":        stats["claims"],
+            "name":          stats["name"],
+            "value":         stats["claims"],
             "faucetAddress": addr,
-            "network":      stats["network"],
+            "network":       stats["network"],
         }
         for addr, stats in sorted_by_claims[:10]
     ]
@@ -968,7 +979,6 @@ async def refresh_all_data():
     if others_count > 0:
         pie.append({"name": f"Others ({others_faucets})", "value": others_count, "faucetAddress": "others", "network": ""})
 
-    # ── Assemble final dict ──────────────────────────────────────────────────
     dashboard_data = {
         "total_claims":         total_claims,
         "total_unique_users":   len(unique_users),
@@ -983,13 +993,10 @@ async def refresh_all_data():
     }
 
     print(f"✅ Done: {total_claims} claims | {len(unique_users)} unique users | {dashboard_data['total_faucets']} faucets | {all_txs_count} txs")
-
-    # ── Persist everything to Supabase ───────────────────────────────────────
     save_dashboard_to_supabase(dashboard_data)
 
 
 # ====================== SCHEDULER ======================
-# Auto-refresh every 3 hours. Frontend manual refresh hits /api/refresh directly.
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(refresh_all_data,        "interval", hours=3)
@@ -1000,26 +1007,17 @@ scheduler.start()
 # ====================== SUPABASE DASHBOARD LOADER ======================
 
 def load_from_supabase() -> Optional[dict]:
-    """
-    Reads ALL dashboard data from Supabase.
-    Uses the new network_tx_data and dashboard_meta tables when available,
-    falls back gracefully to computing from claim_data.
-    """
-    # ── Scalar totals from dashboard_meta ────────────────────────────────────
     meta_rows = supabase.table("dashboard_meta").select("*").eq("id", 1).execute().data
     meta = meta_rows[0] if meta_rows else {}
 
-    # ── faucet_data ───────────────────────────────────────────────────────────
     faucet_rows = supabase.table("faucet_data").select("*").execute().data or []
     network_faucets = [{"network": r["network"], "faucets": r["faucets"]} for r in faucet_rows]
     total_faucets   = meta.get("total_faucets") or sum(r["faucets"] for r in network_faucets)
 
-    # ── user_data ─────────────────────────────────────────────────────────────
     user_rows = supabase.table("user_data").select("*").order("date", desc=False).execute().data or []
     users_chart        = [{"date": r["date"], "newUsers": r["new_users"], "cumulativeUsers": r["cumulative_users"]} for r in user_rows]
     total_unique_users = meta.get("total_unique_users") or (user_rows[-1]["cumulative_users"] if user_rows else 0)
 
-    # ── claim_data ────────────────────────────────────────────────────────────
     claim_rows = supabase.table("claim_data").select("*").order("latest_claim_time", desc=True).execute().data or []
     if not claim_rows and not meta:
         return None
@@ -1040,7 +1038,6 @@ def load_from_supabase() -> Optional[dict]:
         for i, r in enumerate(claim_rows)
     ]
 
-    # ── network_transactions — prefer network_tx_data, fall back to claim_data 
     net_tx_rows = supabase.table("network_tx_data").select("*").execute().data or []
     if net_tx_rows:
         network_transactions = [
@@ -1053,7 +1050,6 @@ def load_from_supabase() -> Optional[dict]:
             for r in net_tx_rows
         ]
     else:
-        # Fallback: aggregate from claim_data
         network_tx_map: Dict[str, int] = {}
         for r in claim_rows:
             net = r["network"]
@@ -1070,7 +1066,6 @@ def load_from_supabase() -> Optional[dict]:
             for net, tx_count in network_tx_map.items()
         ]
 
-    # ── Pie data ──────────────────────────────────────────────────────────────
     sorted_by_claims = sorted(claim_rows, key=lambda r: r["claims"], reverse=True)
     pie = [
         {
@@ -1110,7 +1105,6 @@ def load_from_supabase() -> Optional[dict]:
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
 async def get_dashboard():
-    """Serve dashboard data from Supabase. Falls back to in-memory cache."""
     if supabase:
         try:
             data = load_from_supabase()
@@ -1201,12 +1195,7 @@ async def refresh_network_endpoint(chain_id: int, background_tasks: BackgroundTa
 
 @app.get("/api/refresh")
 async def manual_refresh():
-    """
-    Frontend-triggered refresh. Runs BOTH jobs and awaits completion so
-    Supabase is fully updated before this endpoint returns — the frontend
-    can then immediately re-query Supabase for fresh data.
-    """
-    print("\U0001f5b1\ufe0f  [manual_refresh] triggered by frontend")
+    print("🖱️  [manual_refresh] triggered by frontend")
     await asyncio.gather(
         refresh_all_data(),
         refresh_network_faucets(),
@@ -1223,10 +1212,9 @@ async def manual_refresh():
 async def startup():
     global dashboard_data
     print("🚀 [Startup] API is coming online...")
-    
+
     if supabase:
         try:
-            # 1. Load whatever we have in the DB immediately so the UI isn't empty
             cached = load_from_supabase()
             if cached:
                 dashboard_data = cached
@@ -1234,8 +1222,6 @@ async def startup():
         except Exception as e:
             print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
 
-    # 2. DO NOT 'await' these. Create them as background tasks.
-    # This allows the API to return "Ready" to Render in milliseconds.
     asyncio.create_task(refresh_all_data())
     asyncio.create_task(refresh_network_faucets())
 
