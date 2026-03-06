@@ -1156,24 +1156,45 @@ async def force_sync_faucet(faucet_address: str):
     print(f"🔄 [Force Sync] Requested for faucet {faucet_address}")
 
     try:
-        # 1. Find which chain this faucet belongs to (fast lookup)
-        result = supabase.table("network_faucets").select("chain_id").eq("faucet_address", faucet_address.lower()).execute()
+        # 1. Fetch ALL required identifying info (chain, factory, type)
+        result = supabase.table("network_faucets").select("chain_id, factory_address, factory_type").eq("faucet_address", faucet_address.lower()).execute()
+        
         if not result.data:
             # Fallback: try to find in faucet_details
-            result = supabase.table("faucet_details").select("chain_id").eq("faucet_address", faucet_address.lower()).execute()
+            result = supabase.table("faucet_details").select("chain_id, factory_address, factory_type").eq("faucet_address", faucet_address.lower()).execute()
+            
         if not result.data:
             return {"success": False, "error": "Faucet not found in database"}
 
-        chain_id = result.data[0]["chain_id"]
+        row = result.data[0]
+        chain_id = row["chain_id"]
+        factory_address = row["factory_address"]
+        factory_type = row["factory_type"]
 
-        # 2. Full on-chain + metadata refresh (reuses your existing powerful function)
-        detail = await fetch_faucet_details_sync(faucet_address, chain_id)
+        # --- FIX 1: Create the Web3 instance for this specific chain ---
+        cfg = CHAIN_CONFIGS_V2.get(chain_id) or CHAIN_CONFIGS.get(chain_id)
+        if not cfg:
+            return {"success": False, "error": "Unsupported chain ID"}
+        
+        try:
+            w3 = get_web3(cfg["rpcUrls"])
+        except Exception as e:
+            return {"success": False, "error": f"RPC connection failed: {e}"}
+
+        # --- FIX 2: Pass w3 as the first argument, and DO NOT await (it is a sync function) ---
+        detail = fetch_faucet_details_sync(
+            w3,
+            faucet_address, 
+            factory_address, 
+            factory_type, 
+            chain_id
+        )
 
         if not detail:
             return {"success": False, "error": "Failed to fetch on-chain data"}
 
-        # 3. Enrich with latest metadata, tasks, X template (exactly like creation)
-        detail = _enrich_with_metadata(detail)
+        # --- FIX 3: Await the enrichment function and pass it inside a list ---
+        detail = (await _enrich_with_metadata([detail]))[0]
 
         # 4. Upsert both critical tables
         supabase.table("network_faucets").upsert({
