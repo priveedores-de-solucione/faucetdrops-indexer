@@ -209,7 +209,6 @@ NETWORK_COLORS: Dict[str, str] = {
     "Arbitrum":  "#28A0F0",
     "Base":      "#0052FF",
     "BNB":       "#F3BA2F",
-    "Avalanche": "#E84142",
 }
 
 CHAIN_CONFIGS: Dict[int, Dict] = {
@@ -248,13 +247,7 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "nativeCurrency": {"symbol": "BNB", "decimals": 18},
         "blockExplorer": "https://bscscan.com/",
     },
-    43114: {
-        "name": "Avalanche",
-        "rpcUrls": ["https://api.avax.network/ext/bc/C/rpc", "https://avax-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-"],
-        "factoryAddresses": [],
-        "nativeCurrency": {"symbol": "AVAX", "decimals": 18},
-        "blockExplorer": "https://snowtrace.io/",
-    },
+    
 }
 
 CHAIN_CONFIGS_V2: Dict[int, Dict] = {
@@ -307,11 +300,7 @@ CHAIN_CONFIGS_V2: Dict[int, Dict] = {
             "0x4B8c7A12660C4847c65662a953F517198fBFc0ED": "custom",
         },
     },
-    43114: {
-        "name": "Avalanche",
-        "rpcUrls": CHAIN_CONFIGS[43114]["rpcUrls"],
-        "factories": {},
-    },
+    
 }
 
 NATIVE_SYMBOLS: Dict[int, str] = {
@@ -320,7 +309,7 @@ NATIVE_SYMBOLS: Dict[int, str] = {
     42161: "ETH",
     8453:  "ETH",
     56:    "BNB",
-    43114: "AVAX",
+    
 }
 
 
@@ -474,7 +463,7 @@ def resolve_token_symbol(
     Returns (token_symbol, token_decimals).
 
     Resolution order:
-      1. Native ETH/BNB/CELO/AVAX  → from NATIVE_SYMBOLS map
+      1. Native ETH/BNB/CELO → from NATIVE_SYMBOLS map
       2. ERC-20 token               → call symbol() + decimals() on-chain
       3. Fallback                   → "TOKEN" / 18
     """
@@ -510,7 +499,7 @@ def fetch_faucet_details_sync(
     ready for upsert into the `faucet_details` Supabase table.
 
     Token resolution is handled by resolve_token_symbol(), which correctly
-    distinguishes native assets (ETH/BNB/CELO/AVAX) from ERC-20 tokens.
+    distinguishes native assets (ETH/BNB/CELO) from ERC-20 tokens.
     """
     try:
         checksum = w3.to_checksum_address(faucet_address)
@@ -1103,6 +1092,7 @@ def load_from_supabase() -> Optional[dict]:
 
 # ====================== ROUTES ======================
 
+
 @app.get("/api/dashboard", response_model=DashboardResponse)
 async def get_dashboard():
     if supabase:
@@ -1157,7 +1147,61 @@ async def get_faucet_detail(faucet_address: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+@app.post("/force-sync-faucet/{faucet_address}")
+async def force_sync_faucet(faucet_address: str):
+    """
+    Force immediate full sync of a faucet after admin updates.
+    Called from frontend after setClaimParameters, update name, tasks, X template, etc.
+    """
+    print(f"🔄 [Force Sync] Requested for faucet {faucet_address}")
 
+    try:
+        # 1. Find which chain this faucet belongs to (fast lookup)
+        result = supabase.table("network_faucets").select("chain_id").eq("faucet_address", faucet_address.lower()).execute()
+        if not result.data:
+            # Fallback: try to find in faucet_details
+            result = supabase.table("faucet_details").select("chain_id").eq("faucet_address", faucet_address.lower()).execute()
+        if not result.data:
+            return {"success": False, "error": "Faucet not found in database"}
+
+        chain_id = result.data[0]["chain_id"]
+
+        # 2. Full on-chain + metadata refresh (reuses your existing powerful function)
+        detail = await fetch_faucet_details_sync(faucet_address, chain_id)
+
+        if not detail:
+            return {"success": False, "error": "Failed to fetch on-chain data"}
+
+        # 3. Enrich with latest metadata, tasks, X template (exactly like creation)
+        detail = _enrich_with_metadata(detail)
+
+        # 4. Upsert both critical tables
+        supabase.table("network_faucets").upsert({
+            "faucet_address": detail["faucet_address"],
+            "chain_id": detail["chain_id"],
+            "network_name": detail["network_name"],
+            "factory_type": detail["factory_type"],
+            "faucet_name": detail["faucet_name"],
+            "token_symbol": detail["token_symbol"],
+            "is_ether": detail["is_ether"],
+            "owner_address": detail["owner_address"],
+            "slug": detail.get("slug")
+        }, on_conflict="faucet_address").execute()
+
+        supabase.table("faucet_details").upsert(detail, on_conflict="faucet_address").execute()
+
+        print(f"✅ [Force Sync] SUCCESS for {faucet_address} (chain {chain_id})")
+        return {
+            "success": True,
+            "slug": detail.get("slug"),
+            "faucet_name": detail.get("faucet_name"),
+            "message": "Faucet data refreshed instantly"
+        }
+
+    except Exception as e:
+        print(f"❌ [Force Sync] ERROR for {faucet_address}: {e}")
+        return {"success": False, "error": str(e)}
+    
 @app.get("/api/faucets")
 async def get_all_faucets(
     active_only:  bool          = Query(False),
@@ -1205,7 +1249,76 @@ async def manual_refresh():
         "last_updated": dashboard_data.get("last_updated"),
     }
 
+@app.post("/sync-faucet/{faucet_address}")
+async def sync_single_faucet(faucet_address: str):
+    """
+    Called immediately after faucet creation.
+    Forces the faucet into faucet_details + network_faucets so
+    FaucetDetails page works instantly.
+    """
+    print(f"🔄 [sync_single_faucet] Forced sync requested for {faucet_address}")
 
+    deleted = await fetch_deleted_faucets()
+    if faucet_address.lower() in deleted:
+        return {"success": False, "message": "Faucet was deleted"}
+
+    for chain_id, cfg in CHAIN_CONFIGS_V2.items():
+        try:
+            w3 = get_web3(cfg["rpcUrls"])
+        except:
+            continue
+
+        # Quick sanity check that this is actually a faucet
+        try:
+            contract = w3.eth.contract(
+                address=w3.to_checksum_address(faucet_address),
+                abi=FAUCET_ABI
+            )
+            _ = contract.functions.name().call()  # will fail if not a faucet
+        except:
+            continue
+
+        # Use your existing powerful fetch function
+        detail = fetch_faucet_details_sync(
+            w3,
+            faucet_address,
+            "0x0000000000000000000000000000000000000000",  # placeholder
+            "dropcode",  # will be corrected by metadata later
+            chain_id
+        )
+
+        if detail:
+            # Enrich with metadata (description + image)
+            detail = (await _enrich_with_metadata([detail]))[0]
+
+            # Save to both tables
+            supabase.table("network_faucets").upsert({
+                "faucet_address": detail["faucet_address"],
+                "chain_id": chain_id,
+                "network_name": cfg["name"],
+                "factory_address": "0x0000000000000000000000000000000000000000",
+                "factory_type": detail.get("factory_type", "dropcode"),
+                "faucet_name": detail["faucet_name"],
+                "slug": detail["slug"],
+                "token_symbol": detail["token_symbol"],
+                "token_decimals": detail["token_decimals"],
+                "is_ether": detail["is_ether"],
+                "is_claim_active": detail["is_claim_active"],
+                "owner_address": detail["owner_address"],
+                "start_time": detail["start_time"],
+            }, on_conflict="faucet_address").execute()
+
+            supabase.table("faucet_details").upsert(detail, on_conflict="faucet_address").execute()
+
+            print(f"✅ Instant sync complete: {faucet_address} → slug={detail['slug']}")
+            return {
+                "success": True,
+                "message": "Faucet synced instantly",
+                "slug": detail["slug"],
+                "chain_id": chain_id
+            }
+
+    return {"success": False, "message": "Faucet not found on any supported chain"}
 # ====================== STARTUP ======================
 
 @app.on_event("startup")
@@ -1229,6 +1342,6 @@ async def startup():
 # ====================== RENDER.COM COMPATIBLE RUN ======================
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8001))
+    port = int(os.getenv(8001))
     print(f"🚀 Starting FaucetDrop API on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
