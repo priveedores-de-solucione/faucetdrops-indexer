@@ -815,7 +815,7 @@ async def refresh_all_data():
 
         for factory_addr in cfg["factoryAddresses"]:
             if is_placeholder_address(factory_addr):
-                continue
+                continue    
             addr_checksum = safe_checksum(w3, factory_addr)
             if not addr_checksum:
                 continue
@@ -1263,7 +1263,6 @@ async def manual_refresh():
     print("🖱️  [manual_refresh] triggered by frontend")
     await asyncio.gather(
         refresh_all_data(),
-        refresh_network_faucets(),
     )
     return {
         "status":       "complete",
