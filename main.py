@@ -214,35 +214,35 @@ NETWORK_COLORS: Dict[str, str] = {
 CHAIN_CONFIGS: Dict[int, Dict] = {
     42220: {
         "name": "Celo",
-        "rpcUrls": ["https://forno.celo.org", "https://celo-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-", "https://celo-mainnet.infura.io/v3/e9fa8c3350054dafa40019a5b604679f"],
+        "rpcUrls": ["https://forno.celo.org"],
         "factoryAddresses": ["0x17cFed7fEce35a9A71D60Fbb5CA52237103A21FB", "0xB8De8f37B263324C44FD4874a7FB7A0C59D8C58E", "0xc26c4Ea50fd3b63B6564A5963fdE4a3A474d4024", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de", "0xE3Ac30fa32E727386a147Fe08b4899Da4115202f", "0xF8707b53a2bEc818E96471DDdb34a09F28E0dE6D", "0x8D1306b3970278b3AB64D1CE75377BDdf00f61da", "0x8cA5975Ded3B2f93E188c05dD6eb16d89b14aeA5", "0xc9c89f695C7fa9D9AbA3B297C9b0d86C5A74f534"],
         "nativeCurrency": {"symbol": "CELO", "decimals": 18},
         "blockExplorer": "https://celoscan.io/",
     },
     1135: {
         "name": "Lisk",
-        "rpcUrls": ["https://rpc.api.lisk.com", "https://lisk.drpc.org", "https://1rpc.io/lisk"],
+        "rpcUrls": ["https://rpc.api.lisk.com"],
         "factoryAddresses": ["0x96E9911df17e94F7048cCbF7eccc8D9b5eDeCb5C", "0x4F5Cf906b9b2Bf4245dba9F7d2d7F086a2a441C2", "0x21E855A5f0E6cF8d0CfE8780eb18e818950dafb7", "0xd6Cb67dF496fF739c4eBA2448C1B0B44F4Cf0a7C", "0x0837EACf85472891F350cba74937cB02D90E60A4"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://blockscout.lisk.com/",
     },
     42161: {
         "name": "Arbitrum",
-        "rpcUrls": ["https://arb1.arbitrum.io/rpc", "https://arb-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-", "https://arbitrum.infura.io/v3/e9fa8c3350054dafa40019a5b604679f"],
+        "rpcUrls": ["https://arb1.arbitrum.io/rpc"],
         "factoryAddresses": ["0x0a5C19B5c0f4B9260f0F8966d26bC05AAea2009C", "0x42355492298A89eb1EF7FB2fFE4555D979f1Eee9", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://arbiscan.io/",
     },
     8453: {
         "name": "Base",
-        "rpcUrls": ["https://base.publicnode.com", "https://mainnet.base.org", "https://base-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-"],
+        "rpcUrls": ["https://base.publicnode.com"],
         "factoryAddresses": ["0x945431302922b69D500671201CEE62900624C6d5", "0xda191fb5Ca50fC95226f7FC91C792927FC968CA9", "0x587b840140321DD8002111282748acAdaa8fA206"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://basescan.org/",
     },
     56: {
         "name": "BNB",
-        "rpcUrls": ["https://bnb-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-", "https://bsc-dataseed.binance.org/", "https://rpc.ankr.com/bsc"],
+        "rpcUrls": ["https://bnb-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-"],
         "factoryAddresses": ["0xFE7DB2549d0c03A4E3557e77c8d798585dD80Cc1", "0x0F779235237Fc136c6EE9dD9bC2545404CDeAB36", "0x4B8c7A12660C4847c65662a953F517198fBFc0ED"],
         "nativeCurrency": {"symbol": "BNB", "decimals": 18},
         "blockExplorer": "https://bscscan.com/",
@@ -827,7 +827,7 @@ async def refresh_all_data():
                 faucet_addresses = data_b
 
                 chain_tx_count += len(factory_txs)
-                claims = [tx for tx in factory_txs if "claim" in str(tx[1]).lower()]
+                claims = [tx for tx in factory_txs if str(tx[1]).lower() in ("claim", "claimwhenactive")]
                 chain_claim_txs.extend(claims)
                 label = "QUEST" if contract_type == "quest" else "FACTORY"
                 print(f"   📋 {chain_name}/{addr_checksum[:10]}... {label}: {len(factory_txs)} txs, {len(claims)} claims")
