@@ -11,10 +11,7 @@ from supabase import create_client, Client
 import os
 import httpx
 from bs4 import BeautifulSoup
-import asyncpg
 from urllib.parse import urlparse
-import json
-
 import hashlib
 import secrets
 import re
