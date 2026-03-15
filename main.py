@@ -505,17 +505,6 @@ def _make_slug(name: str, address: str) -> str:
     addr_suffix = address.lower()[-4:]
     return f"{name_part}-{addr_suffix}" if name_part else addr_suffix
 
-async def get_db() -> asyncpg.Pool:
-    global _db_pool
-    if _db_pool is None:
-        _db_pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            min_size=2,
-            max_size=10,
-            command_timeout=30,
-            statement_cache_size=0,
-        )
-    return _db_pool
 
 # ====================== TOKEN SYMBOL RESOLVER ======================
 
