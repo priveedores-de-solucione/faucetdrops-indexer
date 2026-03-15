@@ -6,9 +6,21 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from collections import defaultdict
 from typing import List, Dict, Any, Optional
-from datetime import datetime
 import asyncio, os, requests
 from supabase import create_client, Client
+import os
+import httpx
+from bs4 import BeautifulSoup
+import asyncpg
+from urllib.parse import urlparse
+import json
+
+import hashlib
+import secrets
+import re
+import hashlib
+import secrets
+from datetime import datetime, timezone, timedelta
 
 load_dotenv()
 
@@ -22,7 +34,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ====================== RESPONSE MODELS ======================
+
+BLOG_ADMIN_USERNAME = os.getenv("BLOG_ADMIN_USERNAME","")
+BLOG_ADMIN_PASSWORD = os.getenv("BLOG_ADMIN_PASSWORD", "")
+BLOG_SECRET_KEY     = os.getenv("BLOG_SECRET_KEY", "")
+DATABASE_URL        = os.getenv("DATABASE_URL", "")
+# In-memory session store  { token: expires_at }
+blog_sessions: dict[str, datetime] = {}
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def generate_session_token() -> str:
+    return secrets.token_urlsafe(32)
+
+def is_valid_session(token: str) -> bool:
+    if not token or token not in blog_sessions:
+        return False
+    if datetime.now(timezone.utc) > blog_sessions[token]:
+        del blog_sessions[token]
+        return False
+    return True
+
+class BlogLoginRequest(BaseModel):
+    username: str
+    password: str
+
+class CreateBlogRequest(BaseModel):
+    title: str
+    content: str
+    excerpt: str = ""
+    coverImageUrl: str = ""
+    tags: List[str] = []
+    authorName: str = ""
+    authorAvatar: str = ""
+    authorHandle: str = ""
+    sourceUrl: str = ""
+    sessionToken: str  # required for all write operations
+
+class ExtractUrlRequest(BaseModel):
+    url: str
+    sessionToken: str
+
+class DeleteBlogRequest(BaseModel):
+    sessionToken: str
 
 class FaucetMetaResponse(BaseModel):
     faucet_address: str
@@ -450,6 +505,17 @@ def _make_slug(name: str, address: str) -> str:
     addr_suffix = address.lower()[-4:]
     return f"{name_part}-{addr_suffix}" if name_part else addr_suffix
 
+async def get_db() -> asyncpg.Pool:
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=2,
+            max_size=10,
+            command_timeout=30,
+            statement_cache_size=0,
+        )
+    return _db_pool
 
 # ====================== TOKEN SYMBOL RESOLVER ======================
 
@@ -1339,6 +1405,427 @@ async def sync_single_faucet(faucet_address: str):
             }
 
     return {"success": False, "message": "Faucet not found on any supported chain"}
+
+
+
+
+# ── Blog endpoints (Supabase version — no asyncpg) ─────────────
+
+@app.post("/api/blogs/login")
+async def blog_login(body: BlogLoginRequest):
+    if (body.username != BLOG_ADMIN_USERNAME or
+        hash_password(body.password) != hash_password(BLOG_ADMIN_PASSWORD)):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = generate_session_token()
+    blog_sessions[token] = datetime.now(timezone.utc) + timedelta(hours=24)
+    return {
+        "success": True,
+        "sessionToken": token,
+        "expiresAt": blog_sessions[token].isoformat(),
+        "admin": {
+            "username": BLOG_ADMIN_USERNAME,
+            "displayName": os.getenv("BLOG_ADMIN_DISPLAY_NAME", "FaucetDrops Team"),
+            "avatarUrl": os.getenv("BLOG_ADMIN_AVATAR_URL", ""),
+        }
+    }
+
+@app.post("/api/blog/logout")
+async def blog_logout(sessionToken: str):
+    if sessionToken in blog_sessions:
+        del blog_sessions[sessionToken]
+    return {"success": True}
+
+@app.get("/api/blog/me")
+async def blog_me(sessionToken: str):
+    if not is_valid_session(sessionToken):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {
+        "success": True,
+        "admin": {
+            "username": BLOG_ADMIN_USERNAME,
+            "displayName": os.getenv("BLOG_ADMIN_DISPLAY_NAME", "FaucetDrops Team"),
+            "avatarUrl": os.getenv("BLOG_ADMIN_AVATAR_URL", ""),
+        }
+    }
+
+
+@app.post("/api/blog/extract-url")
+async def extract_url_metadata(body: ExtractUrlRequest):
+    if not is_valid_session(body.sessionToken):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    parsed_url = urlparse(body.url)
+    is_twitter = parsed_url.netloc in ["twitter.com", "www.twitter.com", "x.com", "www.x.com"]
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=20,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
+        ) as client:
+            
+            # ==========================================
+            # 1. TWITTER / X EXTRACTION STRATEGY
+            # ==========================================
+            if is_twitter:
+                path_parts = parsed_url.path.strip("/").split("/")
+                # Ensure it's a valid tweet URL (e.g., /username/status/1234567890)
+                if len(path_parts) >= 3 and path_parts[1] == "status":
+                    api_url = f"https://api.vxtwitter.com/{path_parts[0]}/status/{path_parts[2]}"
+                    res = await client.get(api_url)
+                    res.raise_for_status()
+                    
+                    tweet_data = res.json()
+                    
+                    author_name = tweet_data.get('user_name', 'Unknown')
+                    author_handle = f"@{tweet_data.get('user_screen_name', '')}"
+                    content = tweet_data.get('text', '')
+                    media = tweet_data.get('mediaURLs', [])
+                    cover = media[0] if media else ""
+                    
+                    return {"success": True, "data": {
+                        "title": f"Tweet by {author_name}",
+                        "excerpt": content[:300] + "..." if len(content) > 300 else content,
+                        "content": content,
+                        "coverImageUrl": cover,
+                        "authorName": author_name,
+                        "authorAvatar": "", 
+                        "authorHandle": author_handle,
+                        "sourceUrl": body.url,
+                        "tags": ["twitter", "tweet"]
+                    }}
+            
+            # ==========================================
+            # 2. STANDARD ARTICLE EXTRACTION STRATEGY
+            # ==========================================
+            res = await client.get(body.url)
+            res.raise_for_status()
+
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        # ── Meta helpers ────────────────────────────────────────
+        def og(prop):
+            tag = soup.find("meta", property=f"og:{prop}")
+            return tag["content"].strip() if tag and tag.get("content") else ""
+
+        def meta(name):
+            tag = soup.find("meta", attrs={"name": name})
+            return tag["content"].strip() if tag and tag.get("content") else ""
+
+        def tw(name):
+            tag = (soup.find("meta", attrs={"name": f"twitter:{name}"}) or
+                   soup.find("meta", property=f"twitter:{name}"))
+            return tag["content"].strip() if tag and tag.get("content") else ""
+
+        title   = og("title") or tw("title") or (soup.find("title").get_text().strip() if soup.find("title") else "")
+        excerpt = og("description") or meta("description") or tw("description") or ""
+        cover   = og("image") or tw("image") or ""
+
+        if cover and cover.startswith("/"):
+            p = urlparse(body.url)
+            cover = f"{p.scheme}://{p.netloc}{cover}"
+
+        author = meta("author") or og("site_name") or ""
+
+        # Favicon
+        favicon = ""
+        link_icon = soup.find("link", rel=lambda r: r and "icon" in r.lower() if r else False)
+        if link_icon and link_icon.get("href"):
+            href = link_icon["href"]
+            if href.startswith("http"):
+                favicon = href
+            else:
+                p = urlparse(body.url)
+                favicon = f"{p.scheme}://{p.netloc}{href}"
+
+        # ── Aggressive content extraction ───────────────────────
+        noise_tags = [
+            "script", "style", "noscript", "nav", "header", "footer",
+            "aside", "form", "button", "input", "select", "textarea",
+            "iframe", "embed", "object", "advertisement", "ads",
+            "cookie", "popup", "modal", "sidebar", "menu", "breadcrumb",
+            "social", "share", "comment", "related", "recommended",
+            "newsletter", "subscribe",
+        ]
+        for tag in soup.find_all(noise_tags):
+            tag.decompose()
+
+        noise_patterns = [
+            "nav", "header", "footer", "sidebar", "menu", "ad", "ads",
+            "advertisement", "banner", "popup", "modal", "cookie",
+            "social", "share", "comment", "related", "newsletter",
+            "subscribe", "widget", "promo", "signup", "login",
+            "breadcrumb", "pagination", "tag-list", "author-bio",
+            "read-more", "recommended",
+        ]
+        for pattern in noise_patterns:
+            for el in soup.find_all(class_=re.compile(pattern, re.I)):
+                el.decompose()
+            for el in soup.find_all(id=re.compile(pattern, re.I)):
+                el.decompose()
+
+        content = ""
+
+        content_selectors = [
+            ("tag",   "article"),
+            ("tag",   "main"),
+            ("class", re.compile(r"article[-_]?(body|content|text|inner)", re.I)),
+            ("class", re.compile(r"post[-_]?(body|content|text|inner|article)", re.I)),
+            ("class", re.compile(r"blog[-_]?(body|content|text|inner|post)", re.I)),
+            ("class", re.compile(r"entry[-_]?(body|content|text)", re.I)),
+            ("class", re.compile(r"story[-_]?(body|content|text)", re.I)),
+            ("class", re.compile(r"news[-_]?(body|content|text|article)", re.I)),
+            ("class", re.compile(r"content[-_]?(body|main|article|text|inner)", re.I)),
+            ("class", re.compile(r"^(content|article|post|entry|story|body)$", re.I)),
+            ("id",    re.compile(r"article[-_]?(body|content|text|inner)", re.I)),
+            ("id",    re.compile(r"post[-_]?(body|content|text|inner)", re.I)),
+            ("id",    re.compile(r"^(content|article|post|entry|story|main)$", re.I)),
+        ]
+
+        def extract_text_from_element(el) -> str:
+            """Extract clean paragraphs and structure into Markdown."""
+            lines = []
+            for node in el.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"]):
+                text = node.get_text(separator=" ", strip=True)
+                
+                # Filter out very short strings unless they are headers
+                if len(text) < 20 and node.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+                    continue
+                    
+                # Format Topics and Subtopics as Markdown
+                if node.name == "h1":
+                    lines.append(f"# {text}")
+                elif node.name == "h2":
+                    lines.append(f"## {text}")
+                elif node.name == "h3":
+                    lines.append(f"### {text}")
+                elif node.name in ["h4", "h5", "h6"]:
+                    lines.append(f"#### {text}")
+                elif node.name == "blockquote":
+                    lines.append(f"> {text}")
+                elif node.name == "li":
+                    lines.append(f"- {text}")
+                else:
+                    lines.append(text)
+                    
+            return "\n\n".join(lines)
+
+        for selector_type, selector_value in content_selectors:
+            if selector_type == "tag":
+                el = soup.find(selector_value)
+            elif selector_type == "class":
+                el = soup.find(class_=selector_value)
+            elif selector_type == "id":
+                el = soup.find(id=selector_value)
+            else:
+                el = None
+
+            if el:
+                candidate = extract_text_from_element(el)
+                if len(candidate) > len(content):
+                    content = candidate
+                if len(content) > 500:
+                    break 
+
+        if len(content) < 300:
+            best_div = None
+            best_len = 0
+            for div in soup.find_all(["div", "section"]):
+                text = extract_text_from_element(div)
+                if len(text) > best_len:
+                    best_len = len(text)
+                    best_div = div
+            if best_div and best_len > 0:
+                content = extract_text_from_element(best_div)
+
+        if len(content) < 200:
+            body_tag = soup.find("body")
+            if body_tag:
+                content = extract_text_from_element(body_tag)
+
+        # Clean up
+        content = re.sub(r"[ \t]{2,}", " ", content)
+        content = re.sub(r"\n{3,}", "\n\n", content).strip()
+
+        tags = [k.strip() for k in (meta("keywords") or "").split(",") if k.strip()][:8]
+
+        return {"success": True, "data": {
+            "title":         title,
+            "excerpt":       excerpt[:300],
+            "content":       content[:15000], # Increased slightly to accommodate Markdown formatting
+            "coverImageUrl": cover,
+            "authorName":    author,
+            "authorAvatar":  favicon,
+            "authorHandle":  "",
+            "sourceUrl":     body.url,
+            "tags":          tags,
+        }}
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=400, detail=f"Could not fetch URL: {e.response.status_code}")
+    except Exception as e:
+        print(f"[Blog Extract] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/blog/posts")
+async def create_blog_post(body: CreateBlogRequest):
+    if not is_valid_session(body.sessionToken):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        slug = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:80]
+        slug = f"{slug}-{int(datetime.now(timezone.utc).timestamp())}"
+
+        author_name   = body.authorName   or os.getenv("BLOG_ADMIN_DISPLAY_NAME", "FaucetDrops Team")
+        author_avatar = body.authorAvatar or os.getenv("BLOG_ADMIN_AVATAR_URL", "")
+
+        result = supabase.table("blog_posts").insert({
+            "slug":            slug,
+            "title":           body.title,
+            "content":         body.content,
+            "excerpt":         body.excerpt,
+            "cover_image_url": body.coverImageUrl,
+            "tags":            body.tags,
+            "author_name":     author_name,
+            "author_avatar":   author_avatar,
+            "author_handle":   body.authorHandle,
+            "source_url":      body.sourceUrl,
+            "is_published":    True,
+        }).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Insert failed")
+
+        return {"success": True, "id": result.data[0]["id"], "slug": slug}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/blog/posts")
+async def get_blog_posts(page: int = 1, limit: int = 12, tag: str = None):
+    try:
+        offset = (page - 1) * limit
+
+        query = supabase.table("blog_posts")\
+            .select("id,slug,title,excerpt,cover_image_url,tags,author_name,author_avatar,author_handle,source_url,published_at")\
+            .eq("is_published", True)\
+            .order("published_at", desc=True)\
+            .range(offset, offset + limit - 1)
+
+        if tag:
+            query = query.contains("tags", [tag])
+
+        result = query.execute()
+        posts  = result.data or []
+
+        # Get total count
+        count_query = supabase.table("blog_posts").select("id", count="exact").eq("is_published", True)
+        if tag:
+            count_query = count_query.contains("tags", [tag])
+        count_result = count_query.execute()
+        total = count_result.count or 0
+
+        # Attach likes + views counts
+        for post in posts:
+            likes = supabase.table("blog_post_likes").select("id", count="exact").eq("post_id", post["id"]).execute()
+            views = supabase.table("blog_post_views").select("id", count="exact").eq("post_id", post["id"]).execute()
+            post["likes_count"] = likes.count or 0
+            post["views_count"] = views.count or 0
+
+        return {
+            "success": True,
+            "posts": posts,
+            "total": total,
+            "page": page,
+            "totalPages": max(1, -(-total // limit)),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/blog/posts/{slug}")
+async def get_blog_post(slug: str):
+    try:
+        result = supabase.table("blog_posts")\
+            .select("*")\
+            .eq("slug", slug)\
+            .eq("is_published", True)\
+            .single()\
+            .execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        post = result.data
+        post_id = post["id"]
+
+        # Record view (fire and forget)
+        try:
+            supabase.table("blog_post_views").insert({"post_id": post_id}).execute()
+        except Exception:
+            pass
+
+        # Attach counts
+        likes = supabase.table("blog_post_likes").select("id", count="exact").eq("post_id", post_id).execute()
+        views = supabase.table("blog_post_views").select("id", count="exact").eq("post_id", post_id).execute()
+        post["likes_count"] = likes.count or 0
+        post["views_count"] = views.count or 0
+
+        return {"success": True, "post": post}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/blog/posts/{slug}")
+async def delete_blog_post(slug: str, body: DeleteBlogRequest):
+    if not is_valid_session(body.sessionToken):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        result = supabase.table("blog_posts").select("id").eq("slug", slug).single().execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Post not found")
+        supabase.table("blog_posts").delete().eq("id", result.data["id"]).execute()
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/blog/posts/{slug}/like")
+async def like_blog_post(slug: str, fingerprint: str):
+    try:
+        post = supabase.table("blog_posts").select("id").eq("slug", slug).single().execute()
+        if not post.data:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        post_id  = post.data["id"]
+        existing = supabase.table("blog_post_likes")\
+            .select("id")\
+            .eq("post_id", post_id)\
+            .eq("fingerprint", fingerprint)\
+            .execute()
+
+        if existing.data:
+            supabase.table("blog_post_likes").delete().eq("id", existing.data[0]["id"]).execute()
+            return {"success": True, "liked": False}
+
+        supabase.table("blog_post_likes").insert({
+            "post_id": post_id, "fingerprint": fingerprint
+        }).execute()
+        return {"success": True, "liked": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ====================== STARTUP ======================
 
 @app.on_event("startup")
@@ -1355,8 +1842,8 @@ async def startup():
         except Exception as e:
             print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
 
-    asyncio.create_task(refresh_all_data())
-    asyncio.create_task(refresh_network_faucets())
+    # asyncio.create_task(refresh_all_data())
+    # asyncio.create_task(refresh_network_faucets())
 
 
 # ====================== RENDER.COM COMPATIBLE RUN ======================
