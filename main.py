@@ -41,7 +41,6 @@ BLOG_ADMIN_PASSWORD = os.getenv("BLOG_ADMIN_PASSWORD", "")
 BLOG_SECRET_KEY     = os.getenv("BLOG_SECRET_KEY", "")
 DATABASE_URL        = os.getenv("DATABASE_URL", "")
 # In-memory session store  { token: expires_at }
-blog_sessions: dict[str, datetime] = {}
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -50,13 +49,39 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 def is_valid_session(token: str) -> bool:
-    if not token or token not in blog_sessions:
+    if not token:
         return False
-    if datetime.now(timezone.utc) > blog_sessions[token]:
-        del blog_sessions[token]
+    try:
+        result = supabase.table("blog_sessions")\
+            .select("token, expires_at")\
+            .eq("token", token)\
+            .single()\
+            .execute()
+        if not result.data:
+            return False
+        # Extend session on every activity (sliding expiry)
+        new_expiry = datetime.now(timezone.utc) + timedelta(days=365)
+        supabase.table("blog_sessions").update({
+            "expires_at": new_expiry.isoformat()
+        }).eq("token", token).execute()
+        return True
+    except Exception:
         return False
-    return True
 
+def create_session(token: str):
+    expires_at = datetime.now(timezone.utc) + timedelta(days=365)
+    supabase.table("blog_sessions").upsert({
+        "token": token,
+        "expires_at": expires_at.isoformat()
+    }).execute()
+    return expires_at
+
+def delete_session(token: str):
+    supabase.table("blog_sessions")\
+        .delete()\
+        .eq("token", token)\
+        .execute()
+        
 class BlogLoginRequest(BaseModel):
     username: str
     password: str
@@ -1458,12 +1483,14 @@ async def blog_login(body: BlogLoginRequest):
     if (body.username != BLOG_ADMIN_USERNAME or
         hash_password(body.password) != hash_password(BLOG_ADMIN_PASSWORD)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
     token = generate_session_token()
-    blog_sessions[token] = datetime.now(timezone.utc) + timedelta(hours=24)
+    expires_at = create_session(token)  # ← persisted to Supabase
+    
     return {
         "success": True,
         "sessionToken": token,
-        "expiresAt": blog_sessions[token].isoformat(),
+        "expiresAt": expires_at.isoformat(),
         "admin": {
             "username": BLOG_ADMIN_USERNAME,
             "displayName": os.getenv("BLOG_ADMIN_DISPLAY_NAME", "FaucetDrops Team"),
@@ -1473,9 +1500,9 @@ async def blog_login(body: BlogLoginRequest):
 
 @app.post("/api/blog/logout")
 async def blog_logout(sessionToken: str):
-    if sessionToken in blog_sessions:
-        del blog_sessions[sessionToken]
+    delete_session(sessionToken)  # ← deletes from Supabase
     return {"success": True}
+
 
 @app.get("/api/blog/me")
 async def blog_me(sessionToken: str):
@@ -1856,17 +1883,21 @@ async def like_blog_post(slug: str, fingerprint: str):
 
         if existing.data:
             supabase.table("blog_post_likes").delete().eq("id", existing.data[0]["id"]).execute()
-            return {"success": True, "liked": False}
+            liked = False
+        else:
+            supabase.table("blog_post_likes").insert({
+                "post_id": post_id, "fingerprint": fingerprint
+            }).execute()
+            liked = True
 
-        supabase.table("blog_post_likes").insert({
-            "post_id": post_id, "fingerprint": fingerprint
-        }).execute()
-        return {"success": True, "liked": True}
+        # ← ADD THIS: fetch fresh count and return it
+        fresh = supabase.table("blog_post_likes").select("id", count="exact").eq("post_id", post_id).execute()
+        return {"success": True, "liked": liked, "likes_count": fresh.count or 0}
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ====================== STARTUP ======================
 
