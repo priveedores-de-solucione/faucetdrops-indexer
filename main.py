@@ -3,12 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from web3 import Web3
 from dotenv import load_dotenv
+from fastapi import File, UploadFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from collections import defaultdict
 from typing import List, Dict, Any, Optional
 import asyncio, os, requests
 from supabase import create_client, Client
 import os
+from fastapi import Form         
+import uuid
+import mimetypes
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -1396,6 +1400,58 @@ async def sync_single_faucet(faucet_address: str):
 
 
 # ── Blog endpoints (Supabase version — no asyncpg) ─────────────
+@app.post("/api/blog/upload-image")
+async def upload_blog_image(
+    file: UploadFile = File(...),
+    sessionToken: str = Form(...),
+):
+    """
+    Uploads an image to Supabase Storage and returns its public URL.
+    Requires a valid admin session token.
+    Bucket name: "blog-images" — create it in Supabase Dashboard →
+      Storage → New bucket → name it "blog-images" → set to Public.
+    """
+    if not is_valid_session(sessionToken):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+ 
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Storage not available")
+ 
+    # ── Validate file type ──
+    ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"}
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type}")
+ 
+    # ── Validate file size (5 MB) ──
+    MAX_BYTES = 5 * 1024 * 1024
+    data = await file.read()
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 5 MB)")
+ 
+    # ── Build a unique storage path ──
+    ext = mimetypes.guess_extension(content_type) or ".jpg"
+    # mimetypes returns ".jpe" for jpeg on some systems — normalise it
+    ext = {".jpe": ".jpg", ".jpeg": ".jpg"}.get(ext, ext)
+    unique_name = f"{uuid.uuid4().hex}{ext}"
+    storage_path = f"posts/{unique_name}"
+ 
+    # ── Upload to Supabase Storage ──
+    try:
+        supabase.storage.from_("blog-images").upload(
+            path=storage_path,
+            file=data,
+            file_options={"content-type": content_type, "upsert": "false"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Storage upload failed: {e}")
+ 
+    # ── Build public URL ──
+    public_url = (
+        f"{os.getenv('SUPABASE_URL')}/storage/v1/object/public/blog-images/{storage_path}"
+    )
+ 
+    return {"success": True, "url": public_url, "path": storage_path}
 
 @app.post("/api/blogs/login")
 async def blog_login(body: BlogLoginRequest):
