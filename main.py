@@ -14,6 +14,7 @@ from fastapi import Form
 import uuid
 import mimetypes
 import httpx
+from abi import (FAUCET_ABI, FACTORY_ABI, QUEST_FACTORY_ABI_MINIMAL, CHECKIN_ABI, ERC20_ABI, QUEST_ABI, QUIZ_ABI,QUIZ_FACTORY_ABI,QUEST_FACTORY_ABI)
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import hashlib
@@ -167,120 +168,6 @@ class DashboardResponse(BaseModel):
 
 # ====================== ABIS ======================
 
-FACTORY_ABI = [
-  {"inputs": [], "stateMutability": "nonpayable", "type": "constructor"},
-  {"inputs": [{"internalType": "address", "name": "faucet", "type": "address"}], "name": "FaucetDeletedError", "type": "error"},
-  {"inputs": [], "name": "FaucetNotRegistered", "type": "error"},
-  {"inputs": [], "name": "InvalidFaucet", "type": "error"},
-  {"inputs": [{"internalType": "address", "name": "owner", "type": "address"}], "name": "OwnableInvalidOwner", "type": "error"},
-  {"inputs": [{"internalType": "address", "name": "account", "type": "address"}], "name": "OwnableUnauthorizedAccount", "type": "error"},
-  {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "faucet", "type": "address"}, {"indexed": False, "internalType": "address", "name": "owner", "type": "address"}, {"indexed": False, "internalType": "string", "name": "name", "type": "string"}, {"indexed": False, "internalType": "address", "name": "token", "type": "address"}, {"indexed": False, "internalType": "address", "name": "backend", "type": "address"}], "name": "FaucetCreated", "type": "event"},
-  {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "faucet", "type": "address"}, {"indexed": True, "internalType": "address", "name": "initiator", "type": "address"}], "name": "FaucetDeleted", "type": "event"},
-  {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "previousOwner", "type": "address"}, {"indexed": True, "internalType": "address", "name": "newOwner", "type": "address"}], "name": "OwnershipTransferred", "type": "event"},
-  {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "faucet", "type": "address"}, {"indexed": False, "internalType": "string", "name": "transactionType", "type": "string"}, {"indexed": False, "internalType": "address", "name": "initiator", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "amount", "type": "uint256"}, {"indexed": False, "internalType": "bool", "name": "isEther", "type": "bool"}, {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}], "name": "TransactionRecorded", "type": "event"},
-  {"inputs": [{"internalType": "string", "name": "_name", "type": "string"}, {"internalType": "address", "name": "_token", "type": "address"}, {"internalType": "address", "name": "_backend", "type": "address"}, {"internalType": "bool", "name": "_useBackend", "type": "bool"}], "name": "createFaucet", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "nonpayable", "type": "function"},
-  {"inputs": [{"internalType": "address", "name": "_faucetAddress", "type": "address"}], "name": "deleteFaucet", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-  {"inputs": [], "name": "getAllFaucets", "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}], "stateMutability": "view", "type": "function"},
-  {"inputs": [], "name": "getAllTransactions", "outputs": [{"components": [{"internalType": "address", "name": "faucetAddress", "type": "address"}, {"internalType": "string", "name": "transactionType", "type": "string"}, {"internalType": "address", "name": "initiator", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}, {"internalType": "bool", "name": "isEther", "type": "bool"}, {"internalType": "uint256", "name": "timestamp", "type": "uint256"}], "internalType": "struct TransactionLibrary.Transaction[]", "name": "", "type": "tuple[]"}], "stateMutability": "view", "type": "function"},
-  {"inputs": [], "name": "getTotalFaucets", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-  {"inputs": [], "name": "getTotalTransactions", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-  {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "getUserFaucets", "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}], "stateMutability": "view", "type": "function"},
-  {"inputs": [], "name": "owner", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
-  {"inputs": [{"internalType": "address", "name": "_faucetAddress", "type": "address"}, {"internalType": "string", "name": "_transactionType", "type": "string"}, {"internalType": "address", "name": "_initiator", "type": "address"}, {"internalType": "uint256", "name": "_amount", "type": "uint256"}, {"internalType": "bool", "name": "_isEther", "type": "bool"}], "name": "recordTransaction", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-  {"inputs": [], "name": "renounceOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-  {"inputs": [{"internalType": "address", "name": "_faucetAddress", "type": "address"}], "name": "resetAllClaims", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-  {"inputs": [{"internalType": "address", "name": "newOwner", "type": "address"}], "name": "transferOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-]
-
-QUEST_FACTORY_ABI_MINIMAL = [
-    {"inputs": [], "name": "getAllQuests", "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "getAllTransactions", "outputs": [{"components": [{"internalType": "address", "name": "faucetAddress", "type": "address"}, {"internalType": "string", "name": "transactionType", "type": "string"}, {"internalType": "address", "name": "initiator", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}, {"internalType": "bool", "name": "isEther", "type": "bool"}, {"internalType": "uint256", "name": "timestamp", "type": "uint256"}], "internalType": "struct TransactionLibrary.Transaction[]", "name": "", "type": "tuple[]"}], "stateMutability": "view", "type": "function"},
-]
-
-ERC20_ABI = [
-    {"inputs": [{"internalType": "string", "name": "name_", "type": "string"}, {"internalType": "string", "name": "symbol_", "type": "string"}], "stateMutability": "nonpayable", "type": "constructor"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "owner", "type": "address"}, {"indexed": True, "internalType": "address", "name": "spender", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "value", "type": "uint256"}], "name": "Approval", "type": "event"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "from", "type": "address"}, {"indexed": True, "internalType": "address", "name": "to", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "value", "type": "uint256"}], "name": "Transfer", "type": "event"},
-    {"inputs": [{"internalType": "address", "name": "owner", "type": "address"}, {"internalType": "address", "name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "spender", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "decimals", "outputs": [{"internalType": "uint8", "name": "", "type": "uint8"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "name", "outputs": [{"internalType": "string", "name": "", "type": "string"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "symbol", "outputs": [{"internalType": "string", "name": "", "type": "string"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "totalSupply", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "to", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}], "name": "transfer", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "from", "type": "address"}, {"internalType": "address", "name": "to", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}], "name": "transferFrom", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
-]
-
-FAUCET_ABI = [
-    {"inputs": [{"internalType": "string", "name": "_name", "type": "string"}, {"internalType": "address", "name": "_token", "type": "address"}, {"internalType": "address", "name": "_backend", "type": "address"}, {"internalType": "bool", "name": "_useBackend", "type": "bool"}, {"internalType": "address", "name": "_owner", "type": "address"}, {"internalType": "address", "name": "_factory", "type": "address"}], "stateMutability": "nonpayable", "type": "constructor"},
-    {"inputs": [], "name": "AlreadyClaimed", "type": "error"},
-    {"inputs": [], "name": "ClaimAmountNotSet", "type": "error"},
-    {"inputs": [], "name": "ClaimPeriodEnded", "type": "error"},
-    {"inputs": [], "name": "ClaimPeriodNotStarted", "type": "error"},
-    {"inputs": [], "name": "ContractPaused", "type": "error"},
-    {"inputs": [{"internalType": "address", "name": "faucet", "type": "address"}], "name": "FaucetDeletedError", "type": "error"},
-    {"inputs": [], "name": "InsufficientBalance", "type": "error"},
-    {"inputs": [], "name": "InvalidAddress", "type": "error"},
-    {"inputs": [], "name": "NotWhitelisted", "type": "error"},
-    {"inputs": [], "name": "TransferFailed", "type": "error"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "user", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "amount", "type": "uint256"}, {"indexed": False, "internalType": "bool", "name": "isEther", "type": "bool"}], "name": "Claimed", "type": "event"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "funder", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "amount", "type": "uint256"}, {"indexed": False, "internalType": "uint256", "name": "backendFee", "type": "uint256"}, {"indexed": False, "internalType": "bool", "name": "isEther", "type": "bool"}], "name": "Funded", "type": "event"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "previousOwner", "type": "address"}, {"indexed": True, "internalType": "address", "name": "newOwner", "type": "address"}], "name": "OwnershipTransferred", "type": "event"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "owner", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "amount", "type": "uint256"}, {"indexed": False, "internalType": "bool", "name": "isEther", "type": "bool"}], "name": "Withdrawn", "type": "event"},
-    {"inputs": [], "name": "BACKEND", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "BACKEND_FEE_PERCENT", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "_admin", "type": "address"}], "name": "addAdmin", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address[]", "name": "users", "type": "address[]"}], "name": "claim", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "claimAmount", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address[]", "name": "users", "type": "address[]"}], "name": "claimWhenActive", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "deleteFaucet", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "deleted", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "endTime", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "factory", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "uint256", "name": "_tokenAmount", "type": "uint256"}], "name": "fund", "outputs": [], "stateMutability": "payable", "type": "function"},
-    {"inputs": [], "name": "getAllClaims", "outputs": [{"components": [{"internalType": "address", "name": "recipient", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}, {"internalType": "uint256", "name": "timestamp", "type": "uint256"}], "internalType": "struct FaucetDrops.ClaimDetail[]", "name": "", "type": "tuple[]"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "getClaimStatus", "outputs": [{"internalType": "bool", "name": "claimed", "type": "bool"}, {"internalType": "bool", "name": "whitelisted", "type": "bool"}, {"internalType": "bool", "name": "canClaim", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "getDetailedClaimStatus", "outputs": [{"internalType": "bool", "name": "claimed", "type": "bool"}, {"internalType": "bool", "name": "whitelisted", "type": "bool"}, {"internalType": "bool", "name": "canClaim", "type": "bool"}, {"internalType": "uint256", "name": "claimAmountForUser", "type": "uint256"}, {"internalType": "bool", "name": "hasCustom", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "getFaucetBalance", "outputs": [{"internalType": "uint256", "name": "balance", "type": "uint256"}, {"internalType": "bool", "name": "isEther", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "getUseBackend", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "", "type": "address"}], "name": "hasClaimed", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "isClaimActive", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "name", "outputs": [{"internalType": "string", "name": "", "type": "string"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "owner", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "paused", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "_admin", "type": "address"}], "name": "removeAdmin", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "renounceOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "resetAllClaimed", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address[]", "name": "users", "type": "address[]"}], "name": "resetClaimedBatch", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "resetClaimedSingle", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "uint256", "name": "_claimAmount", "type": "uint256"}, {"internalType": "uint256", "name": "_startTime", "type": "uint256"}, {"internalType": "uint256", "name": "_endTime", "type": "uint256"}], "name": "setClaimParameters", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}], "name": "setCustomClaimAmount", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address[]", "name": "users", "type": "address[]"}, {"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}], "name": "setCustomClaimAmountsBatch", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "bool", "name": "_paused", "type": "bool"}], "name": "setPaused", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}, {"internalType": "bool", "name": "status", "type": "bool"}], "name": "setWhitelist", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address[]", "name": "users", "type": "address[]"}, {"internalType": "bool", "name": "status", "type": "bool"}], "name": "setWhitelistBatch", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "startTime", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "token", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "newOwner", "type": "address"}], "name": "transferOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "string", "name": "_newName", "type": "string"}], "name": "updateName", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "useBackend", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "userHasCustomAmount", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "uint256", "name": "amount", "type": "uint256"}], "name": "withdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"stateMutability": "payable", "type": "receive"},
-]
-
-CHECKIN_ABI = [
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "user", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}, {"indexed": False, "internalType": "uint256", "name": "balance", "type": "uint256"}], "name": "CheckIn", "type": "event"},
-    {"anonymous": False, "inputs": [{"indexed": True, "internalType": "address", "name": "user", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "participantCount", "type": "uint256"}], "name": "NewParticipant", "type": "event"},
-    {"inputs": [], "name": "droplist", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [], "name": "getAllParticipants", "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "getBalance", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "getTotalTransactions", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [], "name": "getUniqueParticipantCount", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "user", "type": "address"}], "name": "hasAddressParticipated", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"},
-]
-
 
 # ====================== CHAIN CONFIGS ======================
 
@@ -297,6 +184,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Celo",
         "rpcUrls": ["https://forno.celo.org"],
         "factoryAddresses": ["0x17cFed7fEce35a9A71D60Fbb5CA52237103A21FB", "0xB8De8f37B263324C44FD4874a7FB7A0C59D8C58E", "0xc26c4Ea50fd3b63B6564A5963fdE4a3A474d4024", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de", "0xE3Ac30fa32E727386a147Fe08b4899Da4115202f", "0xF8707b53a2bEc818E96471DDdb34a09F28E0dE6D", "0x8D1306b3970278b3AB64D1CE75377BDdf00f61da", "0x8cA5975Ded3B2f93E188c05dD6eb16d89b14aeA5", "0xc9c89f695C7fa9D9AbA3B297C9b0d86C5A74f534"],
+        "Quests": "0x28E06CBD5E22B0f4E39D277457Be13E160fC742F",
+        "quiz": "0xF9e41c0b83c580d3259C7aAB30256a94082E7A1e",
         "nativeCurrency": {"symbol": "CELO", "decimals": 18},
         "blockExplorer": "https://celoscan.io/",
     },
@@ -304,12 +193,16 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Lisk",
         "rpcUrls": ["https://rpc.api.lisk.com"],
         "factoryAddresses": ["0x96E9911df17e94F7048cCbF7eccc8D9b5eDeCb5C", "0x4F5Cf906b9b2Bf4245dba9F7d2d7F086a2a441C2", "0x21E855A5f0E6cF8d0CfE8780eb18e818950dafb7", "0xd6Cb67dF496fF739c4eBA2448C1B0B44F4Cf0a7C", "0x0837EACf85472891F350cba74937cB02D90E60A4"],
+        "Quests": "0xc7889C58B51574d32C83b2e2F60d5eC145103Eb3",
+        "quiz": "0x6D0d7DD8b5E80BfeCa9060703c3768440467D12e",
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://blockscout.lisk.com/",
     },
     42161: {
         "name": "Arbitrum",
         "rpcUrls": ["https://arb1.arbitrum.io/rpc"],
+        "Quests": "0x72680B6ad792a0069B3Bd5Acfd76182f3c63b703",
+        "quiz": "",
         "factoryAddresses": ["0x0a5C19B5c0f4B9260f0F8966d26bC05AAea2009C", "0x42355492298A89eb1EF7FB2fFE4555D979f1Eee9", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://arbiscan.io/",
@@ -318,6 +211,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Base",
         "rpcUrls": ["https://base.publicnode.com"],
         "factoryAddresses": ["0x945431302922b69D500671201CEE62900624C6d5", "0xda191fb5Ca50fC95226f7FC91C792927FC968CA9", "0x587b840140321DD8002111282748acAdaa8fA206"],
+        "Quests": "0xb0B955e9B4a98A1323cE099A97632D5c4fc5d210",
+        "quiz": "0xd942A4188122D81A37FC34743b7b395C2889d049",
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://basescan.org/",
     },
@@ -325,6 +220,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "BNB",
         "rpcUrls": ["https://bnb-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-"],
         "factoryAddresses": ["0xFE7DB2549d0c03A4E3557e77c8d798585dD80Cc1", "0x0F779235237Fc136c6EE9dD9bC2545404CDeAB36", "0x4B8c7A12660C4847c65662a953F517198fBFc0ED"],
+        "Quests": "0x7E8D2A012cF5356e77f9eeccdddb942E72800f76",
+        "quiz": "0xfdA2585D9Cf1AF2F079C0FC169e6914f64a2A51C",
         "nativeCurrency": {"symbol": "BNB", "decimals": 18},
         "blockExplorer": "https://bscscan.com/",
     },
@@ -990,7 +887,36 @@ async def refresh_all_data():
                 unique_users.update(checkin_participants)
                 print(f"      🔄 CHECKIN fallback {stats['addr_checksum'][:10]}...: {checkin_count} txs (+{len(unique_users)-before} new unique)")
 
-        all_txs_count += chain_tx_count
+        # ── Quest + Quiz factories (tx count + unique users only) ──────────
+        for kind, cfg_key in (("quest", "Quests"), ("quiz", "quiz")):
+            factory_addr_raw = cfg.get(cfg_key, "")
+            if not factory_addr_raw or is_placeholder_address(factory_addr_raw):
+                continue
+            factory_cs = safe_checksum(w3, factory_addr_raw)
+            if not factory_cs:
+                continue
+
+            factory_abi = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
+            try:
+                fc          = w3.eth.contract(address=factory_cs, abi=factory_abi)
+                factory_txs = fc.functions.getAllTransactions().call()
+            except Exception as e:
+                print(f"   ⚠️  {chain_name} {kind} factory {factory_cs[:10]}: {e}")
+                continue
+
+            chain_tx_count += len(factory_txs)
+
+            for tx in factory_txs:
+                initiator_cs = safe_checksum(w3, str(tx[2]))
+                if initiator_cs:
+                    unique_users.add(initiator_cs.lower())
+
+            print(f"   📋 {chain_name}/{factory_cs[:10]}... "
+                  f"{'QUEST' if kind == 'quest' else 'QUIZ'}-FACTORY: "
+                  f"{len(factory_txs)} txs")
+        # ── End Quest/Quiz block ────────────────────────────────────────────
+
+        all_txs_count += chain_tx_count   # this line already exists
         network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": chain_tx_count, "color": chain_color})
         network_faucets_list.append({"network": chain_name, "faucets": chain_faucet_count})
         print(f"   ✅ {chain_name}: {chain_tx_count} txs (all), {chain_faucet_count} active faucets")
