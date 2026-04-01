@@ -165,10 +165,6 @@ class DashboardResponse(BaseModel):
     network_faucets: List[Dict]
     last_updated: str
 
-
-# ====================== ABIS ======================
-
-
 # ====================== CHAIN CONFIGS ======================
 
 NETWORK_COLORS: Dict[str, str] = {
@@ -184,8 +180,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Celo",
         "rpcUrls": ["https://forno.celo.org"],
         "factoryAddresses": ["0x17cFed7fEce35a9A71D60Fbb5CA52237103A21FB", "0xB8De8f37B263324C44FD4874a7FB7A0C59D8C58E", "0xc26c4Ea50fd3b63B6564A5963fdE4a3A474d4024", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de", "0xE3Ac30fa32E727386a147Fe08b4899Da4115202f", "0xF8707b53a2bEc818E96471DDdb34a09F28E0dE6D", "0x8D1306b3970278b3AB64D1CE75377BDdf00f61da", "0x8cA5975Ded3B2f93E188c05dD6eb16d89b14aeA5", "0xc9c89f695C7fa9D9AbA3B297C9b0d86C5A74f534"],
-        "Quests": "0x28E06CBD5E22B0f4E39D277457Be13E160fC742F",
-        "quiz": "0xF9e41c0b83c580d3259C7aAB30256a94082E7A1e",
+        "Quests": "0x2Eb9692785e089DD7588b0D3220B5dD154eF2699",
+        "quiz": "0x45aF94C51188C2f1cBAa060Bd9Ee4a37e416Ed1F",
         "nativeCurrency": {"symbol": "CELO", "decimals": 18},
         "blockExplorer": "https://celoscan.io/",
     },
@@ -193,16 +189,16 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Lisk",
         "rpcUrls": ["https://rpc.api.lisk.com"],
         "factoryAddresses": ["0x96E9911df17e94F7048cCbF7eccc8D9b5eDeCb5C", "0x4F5Cf906b9b2Bf4245dba9F7d2d7F086a2a441C2", "0x21E855A5f0E6cF8d0CfE8780eb18e818950dafb7", "0xd6Cb67dF496fF739c4eBA2448C1B0B44F4Cf0a7C", "0x0837EACf85472891F350cba74937cB02D90E60A4"],
-        "Quests": "0xc7889C58B51574d32C83b2e2F60d5eC145103Eb3",
-        "quiz": "0x6D0d7DD8b5E80BfeCa9060703c3768440467D12e",
+        "Quests": "0xE9a7637f11F22c55061936Bc97b9aFEAC2e93C2E",
+        "quiz": "0x8BD9AD5C66Ca2BE1A728e4d139d92103615bcA7C",
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://blockscout.lisk.com/",
     },
     42161: {
         "name": "Arbitrum",
         "rpcUrls": ["https://arb1.arbitrum.io/rpc"],
-        "Quests": "0x72680B6ad792a0069B3Bd5Acfd76182f3c63b703",
-        "quiz": "",
+        "Quests": "0x069ad2047FaEC364eb5009E8E783Ec1D9ae08629",
+        "quiz": "0x3C4ce82625Aa9dc0Efb199bCf5553Af32d27e555",
         "factoryAddresses": ["0x0a5C19B5c0f4B9260f0F8966d26bC05AAea2009C", "0x42355492298A89eb1EF7FB2fFE4555D979f1Eee9", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://arbiscan.io/",
@@ -212,7 +208,7 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "rpcUrls": ["https://base.publicnode.com"],
         "factoryAddresses": ["0x945431302922b69D500671201CEE62900624C6d5", "0xda191fb5Ca50fC95226f7FC91C792927FC968CA9", "0x587b840140321DD8002111282748acAdaa8fA206"],
         "Quests": "0xb0B955e9B4a98A1323cE099A97632D5c4fc5d210",
-        "quiz": "0xd942A4188122D81A37FC34743b7b395C2889d049",
+        "quiz": "0xE88028BC2bF2C4bb6eC6C0587d3248b79cAA5198",
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://basescan.org/",
     },
@@ -220,8 +216,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "BNB",
         "rpcUrls": ["https://bnb-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-"],
         "factoryAddresses": ["0xFE7DB2549d0c03A4E3557e77c8d798585dD80Cc1", "0x0F779235237Fc136c6EE9dD9bC2545404CDeAB36", "0x4B8c7A12660C4847c65662a953F517198fBFc0ED"],
-        "Quests": "0x7E8D2A012cF5356e77f9eeccdddb942E72800f76",
-        "quiz": "0xfdA2585D9Cf1AF2F079C0FC169e6914f64a2A51C",
+        "Quests": "0xBcA0AB3a9705C82DfBb92c4BAcFd5C2175511d54",
+        "quiz": "0xBfbE657a1FB5Fbc1fFadfB5A79EBAfC7D2637d06",
         "nativeCurrency": {"symbol": "BNB", "decimals": 18},
         "blockExplorer": "https://bscscan.com/",
     },
@@ -764,21 +760,18 @@ async def refresh_network_faucets():
 async def refresh_all_data():
     global dashboard_data
     print(f"🔄 [refresh_all_data] started at {datetime.utcnow()}")
-
     all_claims           = []
     all_txs_count        = 0
     network_stats        = []
     network_faucets_list = []
     unique_users: set    = set()
     faucet_stats         = {}
-
     deleted = await fetch_deleted_faucets()
     print(f"   🗑️  Deleted faucets to exclude from counts/claims: {len(deleted)}")
-
+    
     for chain_id, cfg in CHAIN_CONFIGS.items():
         chain_name  = cfg["name"]
         chain_color = NETWORK_COLORS.get(chain_name, "#888888")
-
         try:
             w3 = get_web3(cfg["rpcUrls"])
         except Exception as e:
@@ -786,40 +779,37 @@ async def refresh_all_data():
             network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": 0, "color": chain_color})
             network_faucets_list.append({"network": chain_name, "faucets": 0})
             continue
-
+            
         chain_tx_count     = 0
         chain_faucet_count = 0
         chain_claim_txs    = []
-
+        
+        # ── Standard Faucets & Checkins ─────────────────────────────────────
         for factory_addr in cfg["factoryAddresses"]:
             if is_placeholder_address(factory_addr):
                 continue    
             addr_checksum = safe_checksum(w3, factory_addr)
             if not addr_checksum:
                 continue
-
+                
             contract_type, data_a, data_b = detect_and_call(w3, addr_checksum)
-
+            
             if contract_type in ("factory", "quest"):
                 factory_txs      = data_a
                 faucet_addresses = data_b
-
                 chain_tx_count += len(factory_txs)
                 claims = [tx for tx in factory_txs if str(tx[1]).lower() in ("claim", "claimwhenactive")]
                 chain_claim_txs.extend(claims)
                 label = "QUEST" if contract_type == "quest" else "FACTORY"
                 print(f"   📋 {chain_name}/{addr_checksum[:10]}... {label}: {len(factory_txs)} txs, {len(claims)} claims")
-
+                
                 for faucet_raw in faucet_addresses:
                     faucet_cs = safe_checksum(w3, faucet_raw)
                     if not faucet_cs:
                         continue
                     addr_lower = faucet_cs.lower()
-
                     if addr_lower in deleted:
-                        print(f"      🗑️  Skipping deleted faucet {addr_lower[:10]}... from count")
                         continue
-
                     chain_faucet_count += 1
                     if addr_lower not in faucet_stats:
                         faucet_stats[addr_lower] = {
@@ -827,14 +817,12 @@ async def refresh_all_data():
                             "network": chain_name, "chainId": chain_id,
                             "w3": w3, "addr_checksum": faucet_cs, "checkin_txs": 0,
                         }
-
+                        
             elif contract_type == "checkin":
                 tx_count     = data_a
                 participants = data_b
                 addr_lower   = addr_checksum.lower()
-
                 chain_tx_count += tx_count
-
                 if addr_lower not in deleted:
                     chain_faucet_count += 1
                     before = len(unique_users)
@@ -853,16 +841,14 @@ async def refresh_all_data():
                     print(f"   🗑️  {chain_name}/{addr_checksum[:10]}... CHECKIN deleted — txs counted, faucet excluded")
             else:
                 print(f"   ❓ {chain_name}/{addr_checksum[:10]}... unknown, skipping")
-
+                
         for tx in chain_claim_txs:
             faucet_cs = safe_checksum(w3, str(tx[0]))
             if not faucet_cs:
                 continue
             addr_lower = faucet_cs.lower()
-
             if addr_lower in deleted:
                 continue
-
             claimer_cs = safe_checksum(w3, str(tx[2]))
             if claimer_cs:
                 unique_users.add(claimer_cs.lower())
@@ -875,7 +861,7 @@ async def refresh_all_data():
                 }
             faucet_stats[addr_lower]["claims"] += 1
             faucet_stats[addr_lower]["latest"]  = max(faucet_stats[addr_lower]["latest"], int(tx[5]))
-
+            
         for addr_lower, stats in faucet_stats.items():
             if stats["chainId"] != chain_id or stats["claims"] > 0 or stats["checkin_txs"] > 0:
                 continue
@@ -887,44 +873,89 @@ async def refresh_all_data():
                 unique_users.update(checkin_participants)
                 print(f"      🔄 CHECKIN fallback {stats['addr_checksum'][:10]}...: {checkin_count} txs (+{len(unique_users)-before} new unique)")
 
-        # ── Quest + Quiz factories (tx count + unique users only) ──────────
+        # ── Quest + Quiz factories (Strategy 1: On-Chain Arrays) ─────────────
+        quest_quiz_tx_count = 0
         for kind, cfg_key in (("quest", "Quests"), ("quiz", "quiz")):
             factory_addr_raw = cfg.get(cfg_key, "")
             if not factory_addr_raw or is_placeholder_address(factory_addr_raw):
                 continue
+                
             factory_cs = safe_checksum(w3, factory_addr_raw)
             if not factory_cs:
+                print(f"   ⚠️  {chain_name} {kind} factory: invalid checksum for {factory_addr_raw}")
                 continue
 
-            factory_abi = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
+            print(f"   🔍 {chain_name} {kind.upper()} factory: {factory_cs}")
+
+            factory_abi    = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
+            list_fn        = "getAllQuests"     if kind == "quest" else "getAllQuizzes"
+            per_item_tx_fn = "getQuestTransactions" if kind == "quest" else "getQuizTransactions"
+
             try:
                 fc          = w3.eth.contract(address=factory_cs, abi=factory_abi)
                 factory_txs = fc.functions.getAllTransactions().call()
+                item_addrs  = fc.functions[list_fn]().call()
+                print(f"      ✅ getAllTransactions(): {len(factory_txs)} txs (for tx count only)")
+                print(f"      ✅ {list_fn}(): {len(item_addrs)} {kind}s found")
             except Exception as e:
-                print(f"   ⚠️  {chain_name} {kind} factory {factory_cs[:10]}: {e}")
+                print(f"      ❌ factory call failed: {e}")
                 continue
 
-            chain_tx_count += len(factory_txs)
+            quest_quiz_tx_count += len(factory_txs)
+            chain_tx_count      += len(factory_txs)
 
-            for tx in factory_txs:
-                initiator_cs = safe_checksum(w3, str(tx[2]))
-                if initiator_cs:
-                    unique_users.add(initiator_cs.lower())
+            # ── Extract real claimers via Direct On-Chain Call ─────────────
+            before = len(unique_users)
+            total_item_txs = 0
 
-            print(f"   📋 {chain_name}/{factory_cs[:10]}... "
-                  f"{'QUEST' if kind == 'quest' else 'QUIZ'}-FACTORY: "
-                  f"{len(factory_txs)} txs")
+            for item_raw in item_addrs:
+                item_cs = safe_checksum(w3, item_raw)
+                if not item_cs:
+                    continue
+                try:
+                    # 1. Maintain the tx count from the factory view function
+                    fc_item   = w3.eth.contract(address=factory_cs, abi=factory_abi)
+                    item_txs  = fc_item.functions[per_item_tx_fn](
+                        w3.to_checksum_address(item_cs)
+                    ).call()
+                    total_item_txs += len(item_txs)
+                    print(f"      📄 {kind} {item_cs[:10]}...: {len(item_txs)} admin txs")
+
+                    # 2. Extract unique users using Strategy 1 (Direct View Function)
+                    item_abi = QUEST_ABI if kind == "quest" else QUIZ_ABI
+                    item_contract = w3.eth.contract(address=item_cs, abi=item_abi)
+
+                    try:
+                        # This single call replaces all the log fetching!
+                        participants = item_contract.functions.getUniqueParticipants().call()
+                        for p in participants:
+                            unique_users.add(str(p).lower())
+                    except Exception as e:
+                        print(f"         ⚠️ Failed to read getUniqueParticipants(): {e}")
+                        print(f"         Make sure the new contract logic is deployed!")
+
+                except Exception as e:
+                    print(f"      ⚠️  {kind} {item_cs[:10]}... processing failed: {e}")
+                    continue
+
+            after = len(unique_users)
+            print(f"      📊 total per-item admin txs scraped: {total_item_txs}")
+            print(f"      👥 unique_users grew by {after - before} from {kind} contracts (total now: {after})")
+            print(f"   ✅ {chain_name}/{factory_cs[:10]}... {'QUEST' if kind == 'quest' else 'QUIZ'}-FACTORY done: {len(factory_txs)} txs | {len(item_addrs)} {kind}s | +{after - before} unique users")
+
+        if quest_quiz_tx_count > 0:
+            print(f"   📊 {chain_name}: +{quest_quiz_tx_count} txs from quest/quiz factories")
         # ── End Quest/Quiz block ────────────────────────────────────────────
-
-        all_txs_count += chain_tx_count   # this line already exists
+        
+        all_txs_count += chain_tx_count
         network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": chain_tx_count, "color": chain_color})
         network_faucets_list.append({"network": chain_name, "faucets": chain_faucet_count})
-        print(f"   ✅ {chain_name}: {chain_tx_count} txs (all), {chain_faucet_count} active faucets")
-
+        print(f"   ✅ {chain_name}: {chain_tx_count} txs total (faucet + quest + quiz), {chain_faucet_count} active faucets")
+        
     print(f"🔤 Fetching names for {len(faucet_stats)} faucets...")
     for addr_lower, stats in faucet_stats.items():
         stats["name"] = get_faucet_name_sync(stats["w3"], stats["addr_checksum"])
-
+        
     # ── User chart ───────────────────────────────────────────────────────────
     first_claim_per_user = {}
     for tx in all_claims:
@@ -932,18 +963,18 @@ async def refresh_all_data():
         date_str = datetime.fromtimestamp(int(tx[5])).strftime("%Y-%m-%d")
         if claimer not in first_claim_per_user or date_str < first_claim_per_user[claimer]:
             first_claim_per_user[claimer] = date_str
-
+            
     new_users_by_date = defaultdict(int)
     for date_str in first_claim_per_user.values():
         new_users_by_date[date_str] += 1
-
+        
     users_chart = []
     cumulative  = 0
     for date_str in sorted(new_users_by_date.keys()):
         new = new_users_by_date[date_str]
         cumulative += new
         users_chart.append({"date": date_str, "newUsers": new, "cumulativeUsers": cumulative})
-
+        
     # ── Rankings + pie ───────────────────────────────────────────────────────
     total_claims   = len(all_claims)
     sorted_faucets = sorted(faucet_stats.items(), key=lambda x: x[1]["latest"], reverse=True)
@@ -959,7 +990,7 @@ async def refresh_all_data():
         }
         for i, (addr, stats) in enumerate(sorted_faucets)
     ]
-
+    
     sorted_by_claims = sorted(faucet_stats.items(), key=lambda x: x[1]["claims"], reverse=True)
     pie = [
         {
@@ -970,11 +1001,12 @@ async def refresh_all_data():
         }
         for addr, stats in sorted_by_claims[:10]
     ]
+    
     others_count   = sum(s["claims"] for _, s in sorted_by_claims[10:])
     others_faucets = len(sorted_by_claims) - 10
     if others_count > 0:
         pie.append({"name": f"Others ({others_faucets})", "value": others_count, "faucetAddress": "others", "network": ""})
-
+        
     dashboard_data = {
         "total_claims":         total_claims,
         "total_unique_users":   len(unique_users),
@@ -987,17 +1019,9 @@ async def refresh_all_data():
         "network_faucets":      network_faucets_list,
         "last_updated":         datetime.utcnow().isoformat(),
     }
-
     print(f"✅ Done: {total_claims} claims | {len(unique_users)} unique users | {dashboard_data['total_faucets']} faucets | {all_txs_count} txs")
     save_dashboard_to_supabase(dashboard_data)
-
-
-# ====================== SCHEDULER ======================
-
-scheduler = AsyncIOScheduler()
-scheduler.add_job(refresh_all_data,        "interval", hours=3)
-scheduler.add_job(refresh_network_faucets, "interval", hours=3)
-scheduler.start()
+     
 
 
 # ====================== SUPABASE DASHBOARD LOADER ======================
@@ -1095,6 +1119,411 @@ def load_from_supabase() -> Optional[dict]:
         "network_faucets":      network_faucets,
         "last_updated":         last_updated,
     }
+
+# ====================== ANALYTICS ENDPOINT ======================
+
+# ====================== ANALYTICS ENDPOINT (Supabase-driven) ======================
+
+async def build_faucet_analytics() -> dict:
+    """
+    Builds FaucetAnalytics entirely from Supabase tables.
+    Tables used: network_faucets, dashboard_meta, claim_data, user_data
+    """
+    try:
+        # ── Total faucets ──
+        faucet_rows = supabase.table("network_faucets").select("*").execute().data or []
+        total_faucets = len(faucet_rows)
+
+        # ── Totals from dashboard_meta (already aggregated by refresh_all_data) ──
+        meta_rows = supabase.table("dashboard_meta").select("*").eq("id", 1).execute().data
+        meta = meta_rows[0] if meta_rows else {}
+        total_drops  = meta.get("total_claims", 0)
+        unique_users = meta.get("total_unique_users", 0)
+        avg_drop_per_user = round(total_drops / unique_users, 2) if unique_users else 0
+
+        # ── Monthly volume: aggregate claim_data by month + factory_type ──
+        claim_rows = supabase.table("claim_data").select("*").execute().data or []
+
+        # Build a factory_type lookup from network_faucets
+        faucet_type_map = {
+            f["faucet_address"]: f.get("factory_type", "dropcode")
+            for f in faucet_rows
+        }
+
+        MONTH_ORDER = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        monthly_map: dict = {}
+
+        for row in claim_rows:
+            ts = row.get("latest_claim_time")
+            if not ts:
+                continue
+            try:
+                if isinstance(ts, (int, float)):
+                    dt = datetime.fromtimestamp(int(ts))
+                else:
+                    dt = datetime.fromisoformat(str(ts))
+                month_key = dt.strftime("%b")
+            except Exception:
+                continue
+
+            if month_key not in monthly_map:
+                monthly_map[month_key] = {"month": month_key, "dropcode": 0, "droplist": 0, "custom": 0}
+
+            faucet_addr = row.get("faucet_address", "")
+            ftype = faucet_type_map.get(faucet_addr, "dropcode")
+            ftype = ftype if ftype in ("dropcode", "droplist", "custom") else "dropcode"
+            monthly_map[month_key][ftype] += row.get("claims", 0)
+
+        monthly_volume = sorted(
+            monthly_map.values(),
+            key=lambda x: MONTH_ORDER.index(x["month"]) if x["month"] in MONTH_ORDER else 99
+        )[-7:]
+
+        # ── Type split (% of faucets by factory_type) ──
+        type_counts: dict = {"dropcode": 0, "droplist": 0, "custom": 0}
+        for f in faucet_rows:
+            ft = f.get("factory_type", "dropcode")
+            if ft in type_counts:
+                type_counts[ft] += 1
+        total_typed = sum(type_counts.values()) or 1
+        type_split = [
+            {"name": "DropCode", "value": round(type_counts["dropcode"] / total_typed * 100)},
+            {"name": "DropList", "value": round(type_counts["droplist"] / total_typed * 100)},
+            {"name": "Custom",   "value": round(type_counts["custom"]   / total_typed * 100)},
+        ]
+
+        # ── Top networks by claims (from claim_data) ──
+        net_claims: dict = {}
+        for row in claim_rows:
+            net = row.get("network", "Unknown")
+            net_claims[net] = net_claims.get(net, 0) + row.get("claims", 0)
+        top_networks = sorted(
+            [{"name": k, "value": v} for k, v in net_claims.items()],
+            key=lambda x: x["value"], reverse=True
+        )[:5]
+
+        # ── Recent activity: top 5 faucets by latest_claim_time ──
+        sorted_claims = sorted(
+            claim_rows,
+            key=lambda r: r.get("latest_claim_time") or 0,
+            reverse=True
+        )[:5]
+        recent_activity = []
+        for row in sorted_claims:
+            addr = row.get("faucet_address", "")
+            ftype_raw   = faucet_type_map.get(addr, "dropcode")
+            ftype_label = {"dropcode": "DropCode", "droplist": "DropList", "custom": "Custom"}.get(ftype_raw, "DropCode")
+            recent_activity.append({
+                "name":    row.get("faucet_name", addr[:10]),
+                "type":    ftype_label,
+                "network": row.get("network", ""),
+                "drops":   row.get("claims", 0),
+            })
+
+        return {
+            "totalFaucets":   total_faucets,
+            "totalDrops":     total_drops,
+            "uniqueUsers":    unique_users,
+            "avgDropPerUser": avg_drop_per_user,
+            "monthlyVolume":  monthly_volume,
+            "typeSplit":      type_split,
+            "topNetworks":    top_networks,
+            "recentActivity": recent_activity,
+        }
+    except Exception as e:
+        print(f"⚠️  [build_faucet_analytics] {e}")
+        return {
+            "totalFaucets": 0, "totalDrops": 0, "uniqueUsers": 0, "avgDropPerUser": 0,
+            "monthlyVolume": [], "typeSplit": [], "topNetworks": [], "recentActivity": [],
+        }
+
+
+async def build_quest_analytics() -> dict:
+    """
+    Builds QuestAnalytics entirely from Supabase tables.
+    Tables used: quests, quest_participants, faucet_tasks, submissions
+    """
+    try:
+        # ── Fetch all quests ──
+        quest_rows = supabase.table("quests").select("*").execute().data or []
+
+        active_quests = sum(1 for q in quest_rows if q.get("is_active") and not q.get("is_draft"))
+        total_quests  = len([q for q in quest_rows if not q.get("is_draft")])
+
+        # ── Participants across all quests ──
+        participant_rows = supabase.table("quest_participants").select("wallet_address, quest_address, points, updated_at").execute().data or []
+        unique_participants = len({r["wallet_address"] for r in participant_rows})
+
+        # ── Completions from submissions ──
+        submission_rows = supabase.table("submissions").select("faucet_address, wallet_address, status, submitted_at").execute().data or []
+        completions = sum(1 for s in submission_rows if s.get("status") == "approved")
+
+        # ── Average tasks per quest ──
+        task_rows = supabase.table("faucet_tasks").select("faucet_address, tasks").execute().data or []
+        task_count_map = {r["faucet_address"]: len(r.get("tasks") or []) for r in task_rows}
+        avg_tasks = round(
+            sum(task_count_map.values()) / len(task_count_map), 1
+        ) if task_count_map else 0
+
+        # ── Weekly completions: group approved submissions by ISO week ──
+        WEEK_LABELS = ["W1","W2","W3","W4","W5","W6","W7","W8"]
+        weekly_map: dict = {}
+        for sub in submission_rows:
+            ts = sub.get("submitted_at")
+            if not ts:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                iso_week = dt.strftime("%Y-W%W")
+                if iso_week not in weekly_map:
+                    weekly_map[iso_week] = {"week": iso_week, "completions": 0, "dropoffs": 0}
+                if sub.get("status") == "approved":
+                    weekly_map[iso_week]["completions"] += 1
+                elif sub.get("status") in ("pending", "rejected"):
+                    weekly_map[iso_week]["dropoffs"] += 1
+            except Exception:
+                continue
+
+        weekly_completions = sorted(weekly_map.values(), key=lambda x: x["week"])[-8:]
+        for i, w in enumerate(weekly_completions):
+            w["week"] = f"W{i + 1}"
+
+        # ── Task type breakdown (from all faucet_tasks) ──
+        task_type_counts: dict = {}
+        for row in task_rows:
+            for task in (row.get("tasks") or []):
+                category = task.get("category") or task.get("action") or "Other"
+                task_type_counts[category] = task_type_counts.get(category, 0) + 1
+
+        task_types = sorted(
+            [{"name": k, "value": v} for k, v in task_type_counts.items()],
+            key=lambda x: x["value"], reverse=True
+        )[:5]
+
+        # ── Top quests by participant count ──
+        quest_participant_counts: dict = {}
+        for r in participant_rows:
+            addr = r["quest_address"]
+            quest_participant_counts[addr] = quest_participant_counts.get(addr, 0) + 1
+
+        # Map addresses to titles
+        quest_title_map = {q["faucet_address"]: q.get("title", q["faucet_address"][:10]) for q in quest_rows}
+        top_quests = sorted(
+            [
+                {"name": quest_title_map.get(addr, addr[:10]), "value": count}
+                for addr, count in quest_participant_counts.items()
+            ],
+            key=lambda x: x["value"], reverse=True
+        )[:5]
+
+        # ── All quests list for the table ──
+        all_quests = []
+        for q in quest_rows:
+            if q.get("is_draft"):
+                continue
+            addr = q.get("faucet_address", "")
+            all_quests.append({
+                "address":      addr,
+                "name":         q.get("title", "Untitled"),
+                "network":      "Multi-chain",
+                "chainId":      q.get("chain_id", 0),
+                "participants": quest_participant_counts.get(addr, 0),
+                "tasks":        task_count_map.get(addr, 0),
+                "isActive":     q.get("is_active", False),
+            })
+
+        return {
+            "activeQuests":      active_quests,
+            "completions":       completions,
+            "participants":      unique_participants,
+            "avgTasksPerQuest":  avg_tasks,
+            "weeklyCompletions": weekly_completions,
+            "taskTypes":         task_types,
+            "topQuests":         top_quests,
+            "allQuests":         all_quests,
+        }
+    except Exception as e:
+        print(f"⚠️  [build_quest_analytics] {e}")
+        return {
+            "activeQuests": 0, "completions": 0, "participants": 0, "avgTasksPerQuest": 0,
+            "weeklyCompletions": [], "taskTypes": [], "topQuests": [], "allQuests": [],
+        }
+
+
+async def build_quiz_analytics() -> dict:
+    """
+    Builds QuizAnalytics entirely from Supabase / asyncpg pool.
+    Falls back to returning zeros if the pool isn't available yet.
+    Tables used: faucet_quizzes, faucet_quiz_participants, faucet_quiz_answers,
+                 faucet_quiz_rewards, faucet_quiz_reward_tiers
+    """
+    # The indexer uses asyncpg pool from main backend; if not available, skip
+    # Instead we query via Supabase REST (anon/service key covers these tables)
+    try:
+        # ── All quizzes ──
+        quiz_rows = supabase.table("faucet_quizzes").select(
+            "id, code, title, status, chain_id, faucet_address, creator_address, "
+            "is_ai_generated, max_participants, time_per_question, created_at, "
+            "rewards_distributed"
+        ).execute().data or []
+
+        total_quizzes = len(quiz_rows)
+        quiz_id_map   = {q["id"]: q for q in quiz_rows}
+
+        # ── Participants / attempts ──
+        participant_rows = supabase.table("faucet_quiz_participants").select(
+            "quiz_id, wallet_address, final_rank, final_points, points"
+        ).execute().data or []
+
+        total_attempts = len(participant_rows)
+
+        # ── Answers for score distribution + daily spread ──
+        answer_rows = supabase.table("faucet_quiz_answers").select(
+            "quiz_id, wallet_address, is_correct, points_earned, answered_at"
+        ).execute().data or []
+
+        # ── Score distribution (map points_earned → 0–10 bands) ──
+        # We derive a notional 0–10 score per participant from final_points / max_possible
+        # Since we don't store a /10 score directly, we use is_correct ratio across answers
+        # Group answers by (quiz_id, wallet_address)
+        from collections import defaultdict
+        answer_map: dict = defaultdict(lambda: {"correct": 0, "total": 0})
+        for a in answer_rows:
+            key = (a["quiz_id"], a["wallet_address"])
+            answer_map[key]["total"] += 1
+            if a.get("is_correct"):
+                answer_map[key]["correct"] += 1
+
+        score_bucket: dict = {str(i): 0 for i in range(11)}
+        total_score_sum = 0
+        for stats in answer_map.values():
+            if stats["total"] == 0:
+                continue
+            raw_score = round((stats["correct"] / stats["total"]) * 10)
+            bucket = str(min(int(raw_score), 10))
+            score_bucket[bucket] = score_bucket.get(bucket, 0) + 1
+            total_score_sum += raw_score
+
+        total_scored = sum(score_bucket.values())
+        passes   = sum(score_bucket.get(str(i), 0) for i in range(6, 11))
+        pass_rate = round(passes / total_scored * 100) if total_scored else 0
+        avg_score = round(total_score_sum / total_scored, 1) if total_scored else 0
+
+        def band(score_int: int) -> str:
+            if score_int <= 5: return "fail"
+            if score_int <= 7: return "pass"
+            return "excellent"
+
+        score_distribution = [
+            {"score": str(i), "count": score_bucket.get(str(i), 0), "band": band(i)}
+            for i in range(11)
+        ]
+
+        # ── Daily attempts from answered_at timestamps ──
+        DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+        daily_map: dict = {d: 0 for d in DAYS}
+        for a in answer_rows:
+            ts = a.get("answered_at")
+            if not ts:
+                continue
+            try:
+                dt  = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                day = dt.strftime("%a")
+                if day in daily_map:
+                    daily_map[day] += 1
+            except Exception:
+                continue
+        daily_attempts = [{"day": d, "value": daily_map[d]} for d in DAYS]
+
+        # ── Top categories by participant count per quiz ──
+        category_map: dict = {}
+        participant_counts_by_quiz: dict = defaultdict(int)
+        for p in participant_rows:
+            participant_counts_by_quiz[p["quiz_id"]] += 1
+
+        for q in quiz_rows:
+            name  = q.get("title") or f"Quiz {(q.get('code') or '')[:6]}"
+            count = participant_counts_by_quiz.get(q["id"], 0)
+            if count > 0:
+                category_map[name] = category_map.get(name, 0) + count
+
+        top_categories = sorted(
+            [{"name": k, "value": v} for k, v in category_map.items()],
+            key=lambda x: x["value"], reverse=True
+        )[:5]
+
+        # ── All quizzes list for the table ──
+        all_quizzes = []
+        for q in quiz_rows:
+            all_quizzes.append({
+                "address":  q.get("faucet_address") or "",
+                "name":     q.get("title") or "Untitled",
+                "network":  "Multi-chain",
+                "chainId":  q.get("chain_id") or 0,
+                "attempts": participant_counts_by_quiz.get(q["id"], 0),
+            })
+
+        return {
+            "totalQuizzes":      total_quizzes,
+            "attempts":          total_attempts,
+            "passRate":          pass_rate,
+            "avgScore":          avg_score,
+            "scoreDistribution": score_distribution,
+            "dailyAttempts":     daily_attempts,
+            "categories":        top_categories,
+            "allQuizzes":        all_quizzes,
+        }
+    except Exception as e:
+        print(f"⚠️  [build_quiz_analytics] {e}")
+        return {
+            "totalQuizzes": 0, "attempts": 0, "passRate": 0, "avgScore": 0,
+            "scoreDistribution": [], "dailyAttempts": [], "categories": [], "allQuizzes": [],
+        }
+
+
+# ── Cached analytics store ──
+_analytics_cache: Dict[str, Any] = {}
+_analytics_last_built: Optional[datetime] = None
+
+async def refresh_analytics_cache():
+    global _analytics_cache, _analytics_last_built
+    print(f"🔄 [refresh_analytics_cache] started at {datetime.utcnow()}")
+    faucet_data = await build_faucet_analytics()
+    quest_data  = await build_quest_analytics()
+    quiz_data   = await build_quiz_analytics()
+    _analytics_cache = {
+        "faucet": faucet_data,
+        "quest":  quest_data,
+        "quiz":   quiz_data,
+        "last_updated": datetime.utcnow().isoformat(),
+    }
+    _analytics_last_built = datetime.utcnow()
+    print(f"✅ [refresh_analytics_cache] done")
+
+
+@app.get("/api/analytics")
+async def get_analytics(background_tasks: BackgroundTasks):
+    """
+    Returns faucet / quest / quiz analytics from Supabase.
+    Serves from cache if fresh (< 3 h); otherwise rebuilds in background
+    and returns stale data immediately so the UI never hangs.
+    """
+    CACHE_TTL_SECONDS = 3 * 60 * 60  # 3 hours
+
+    cache_stale = (
+        not _analytics_cache
+        or _analytics_last_built is None
+        or (datetime.utcnow() - _analytics_last_built).total_seconds() > CACHE_TTL_SECONDS
+    )
+
+    if cache_stale and not _analytics_cache:
+        # First ever call — block until we have data
+        await refresh_analytics_cache()
+    elif cache_stale:
+        # Stale but we have something — refresh in background
+        background_tasks.add_task(refresh_analytics_cache)
+
+    return _analytics_cache
 
 
 # ====================== ROUTES ======================
@@ -1824,6 +2253,15 @@ async def like_blog_post(slug: str, fingerprint: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    # ====================== SCHEDULER ======================
+
+scheduler = AsyncIOScheduler()
+scheduler.add_job(refresh_all_data,        "interval", hours=3)
+scheduler.add_job(refresh_analytics_cache, "interval", hours=3)
+scheduler.add_job(refresh_network_faucets, "interval", hours=3)
+scheduler.start()
+
 
 # ====================== STARTUP ======================
 
@@ -1841,8 +2279,9 @@ async def startup():
         except Exception as e:
             print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
 
-    # asyncio.create_task(refresh_all_data())
-    # asyncio.create_task(refresh_network_faucets())
+    asyncio.create_task(refresh_all_data())
+    #Sasyncio.create_task(refresh_network_faucets())
+    asyncio.create_task(refresh_analytics_cache())
 
 
 # ====================== RENDER.COM COMPATIBLE RUN ======================
