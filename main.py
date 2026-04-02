@@ -1247,13 +1247,19 @@ def load_from_supabase() -> Optional[dict]:
 # ====================== ANALYTICS ENDPOINT (Supabase-driven) ======================
 
 async def build_faucet_analytics() -> dict:
-    """
-    Builds FaucetAnalytics entirely from Supabase tables.
-    Tables used: network_faucets, dashboard_meta, claim_data, user_data
-    """
     try:
-        # ── Total faucets ──
+        meta_rows = supabase.table("dashboard_meta").select("*").eq("id", 1).execute().data
+        meta = meta_rows[0] if meta_rows else {}
+
+        # ── Use dashboard_meta as single source of truth for all totals ──
+        total_faucets     = meta.get("total_faucets", 0)       # ← was len(faucet_rows)
+        total_drops       = meta.get("total_claims", 0)
+        unique_users      = meta.get("total_unique_users", 0)
+        avg_drop_per_user = round(total_drops / unique_users, 2) if unique_users else 0
+
+        # Still need faucet_rows for type split + factory_type lookup
         faucet_rows = supabase.table("network_faucets").select("*").execute().data or []
+
         total_faucets = len(faucet_rows)
 
         # ── Totals from dashboard_meta (already aggregated by refresh_all_data) ──
