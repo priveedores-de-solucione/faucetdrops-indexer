@@ -180,8 +180,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Celo",
         "rpcUrls": ["https://forno.celo.org"],
         "factoryAddresses": ["0x17cFed7fEce35a9A71D60Fbb5CA52237103A21FB", "0xB8De8f37B263324C44FD4874a7FB7A0C59D8C58E", "0xc26c4Ea50fd3b63B6564A5963fdE4a3A474d4024", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de", "0xE3Ac30fa32E727386a147Fe08b4899Da4115202f", "0xF8707b53a2bEc818E96471DDdb34a09F28E0dE6D", "0x8D1306b3970278b3AB64D1CE75377BDdf00f61da", "0x8cA5975Ded3B2f93E188c05dD6eb16d89b14aeA5", "0xc9c89f695C7fa9D9AbA3B297C9b0d86C5A74f534"],
-        "Quests": "0x2Eb9692785e089DD7588b0D3220B5dD154eF2699",
-        "quiz": "0x45aF94C51188C2f1cBAa060Bd9Ee4a37e416Ed1F",
+        "Quests": ["0x2Eb9692785e089DD7588b0D3220B5dD154eF2699","0x28E06CBD5E22B0f4E39D277457Be13E160fC742F"],
+        "quiz":   ["0x45aF94C51188C2f1cBAa060Bd9Ee4a37e416Ed1F","0xF9e41c0b83c580d3259C7aAB30256a94082E7A1e"],
         "nativeCurrency": {"symbol": "CELO", "decimals": 18},
         "blockExplorer": "https://celoscan.io/",
     },
@@ -189,16 +189,16 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Lisk",
         "rpcUrls": ["https://rpc.api.lisk.com"],
         "factoryAddresses": ["0x96E9911df17e94F7048cCbF7eccc8D9b5eDeCb5C", "0x4F5Cf906b9b2Bf4245dba9F7d2d7F086a2a441C2", "0x21E855A5f0E6cF8d0CfE8780eb18e818950dafb7", "0xd6Cb67dF496fF739c4eBA2448C1B0B44F4Cf0a7C", "0x0837EACf85472891F350cba74937cB02D90E60A4"],
-        "Quests": "0xE9a7637f11F22c55061936Bc97b9aFEAC2e93C2E",
-        "quiz": "0x8BD9AD5C66Ca2BE1A728e4d139d92103615bcA7C",
+        "Quests": ["0xE9a7637f11F22c55061936Bc97b9aFEAC2e93C2E","0xc7889C58B51574d32C83b2e2F60d5eC145103Eb3"],
+        "quiz":   ["0x8BD9AD5C66Ca2BE1A728e4d139d92103615bcA7C","0x6D0d7DD8b5E80BfeCa9060703c3768440467D12e"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://blockscout.lisk.com/",
     },
     42161: {
         "name": "Arbitrum",
         "rpcUrls": ["https://arb1.arbitrum.io/rpc"],
-        "Quests": "0x069ad2047FaEC364eb5009E8E783Ec1D9ae08629",
-        "quiz": "0x3C4ce82625Aa9dc0Efb199bCf5553Af32d27e555",
+        "Quests": ["0x069ad2047FaEC364eb5009E8E783Ec1D9ae08629","0x72680B6ad792a0069B3Bd5Acfd76182f3c63b703"],
+        "quiz": ["0x3C4ce82625Aa9dc0Efb199bCf5553Af32d27e555"],
         "factoryAddresses": ["0x0a5C19B5c0f4B9260f0F8966d26bC05AAea2009C", "0x42355492298A89eb1EF7FB2fFE4555D979f1Eee9", "0x9D6f441b31FBa22700bb3217229eb89b13FB49de"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://arbiscan.io/",
@@ -207,8 +207,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "Base",
         "rpcUrls": ["https://base.publicnode.com"],
         "factoryAddresses": ["0x945431302922b69D500671201CEE62900624C6d5", "0xda191fb5Ca50fC95226f7FC91C792927FC968CA9", "0x587b840140321DD8002111282748acAdaa8fA206"],
-        "Quests": "0xb0B955e9B4a98A1323cE099A97632D5c4fc5d210",
-        "quiz": "0xE88028BC2bF2C4bb6eC6C0587d3248b79cAA5198",
+        "Quests": ["0xb0B955e9B4a98A1323cE099A97632D5c4fc5d210"],
+        "quiz":   ["0xE88028BC2bF2C4bb6eC6C0587d3248b79cAA5198","0xd942A4188122D81A37FC34743b7b395C2889d049"],
         "nativeCurrency": {"symbol": "ETH", "decimals": 18},
         "blockExplorer": "https://basescan.org/",
     },
@@ -216,8 +216,8 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "name": "BNB",
         "rpcUrls": ["https://bnb-mainnet.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-"],
         "factoryAddresses": ["0xFE7DB2549d0c03A4E3557e77c8d798585dD80Cc1", "0x0F779235237Fc136c6EE9dD9bC2545404CDeAB36", "0x4B8c7A12660C4847c65662a953F517198fBFc0ED"],
-        "Quests": "0xBcA0AB3a9705C82DfBb92c4BAcFd5C2175511d54",
-        "quiz": "0xBfbE657a1FB5Fbc1fFadfB5A79EBAfC7D2637d06",
+        "Quests": ["0xBcA0AB3a9705C82DfBb92c4BAcFd5C2175511d54", "0x7E8D2A012cF5356e77f9eeccdddb942E72800f76"],
+        "quiz":   ["0xBfbE657a1FB5Fbc1fFadfB5A79EBAfC7D2637d06","0xfdA2585D9Cf1AF2F079C0FC169e6914f64a2A51C"],
         "nativeCurrency": {"symbol": "BNB", "decimals": 18},
         "blockExplorer": "https://bscscan.com/",
     },
@@ -873,84 +873,33 @@ async def refresh_all_data():
                 unique_users.update(checkin_participants)
                 print(f"      🔄 CHECKIN fallback {stats['addr_checksum'][:10]}...: {checkin_count} txs (+{len(unique_users)-before} new unique)")
 
-        # ── Quest + Quiz factories (Strategy 1: On-Chain Arrays) ─────────────
-        quest_quiz_tx_count = 0
-        for kind, cfg_key in (("quest", "Quests"), ("quiz", "quiz")):
-            factory_addr_raw = cfg.get(cfg_key, "")
-            if not factory_addr_raw or is_placeholder_address(factory_addr_raw):
-                continue
-                
-            factory_cs = safe_checksum(w3, factory_addr_raw)
-            if not factory_cs:
-                print(f"   ⚠️  {chain_name} {kind} factory: invalid checksum for {factory_addr_raw}")
-                continue
+        # ── Quest / Quiz: NO on-chain calls — data comes from Supabase ───────
+        # (see post-loop block below for participant ingestion)
 
-            print(f"   🔍 {chain_name} {kind.upper()} factory: {factory_cs}")
-
-            factory_abi    = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
-            list_fn        = "getAllQuests"     if kind == "quest" else "getAllQuizzes"
-            per_item_tx_fn = "getQuestTransactions" if kind == "quest" else "getQuizTransactions"
-
-            try:
-                fc          = w3.eth.contract(address=factory_cs, abi=factory_abi)
-                factory_txs = fc.functions.getAllTransactions().call()
-                item_addrs  = fc.functions[list_fn]().call()
-                print(f"      ✅ getAllTransactions(): {len(factory_txs)} txs (for tx count only)")
-                print(f"      ✅ {list_fn}(): {len(item_addrs)} {kind}s found")
-            except Exception as e:
-                print(f"      ❌ factory call failed: {e}")
-                continue
-
-            quest_quiz_tx_count += len(factory_txs)
-            chain_tx_count      += len(factory_txs)
-
-            # ── Extract real claimers via Direct On-Chain Call ─────────────
-            before = len(unique_users)
-            total_item_txs = 0
-
-            for item_raw in item_addrs:
-                item_cs = safe_checksum(w3, item_raw)
-                if not item_cs:
-                    continue
-                try:
-                    # 1. Maintain the tx count from the factory view function
-                    fc_item   = w3.eth.contract(address=factory_cs, abi=factory_abi)
-                    item_txs  = fc_item.functions[per_item_tx_fn](
-                        w3.to_checksum_address(item_cs)
-                    ).call()
-                    total_item_txs += len(item_txs)
-                    print(f"      📄 {kind} {item_cs[:10]}...: {len(item_txs)} admin txs")
-
-                    # 2. Extract unique users using Strategy 1 (Direct View Function)
-                    item_abi = QUEST_ABI if kind == "quest" else QUIZ_ABI
-                    item_contract = w3.eth.contract(address=item_cs, abi=item_abi)
-
-                    try:
-                        # This single call replaces all the log fetching!
-                        participants = item_contract.functions.getUniqueParticipants().call()
-                        for p in participants:
-                            unique_users.add(str(p).lower())
-                    except Exception as e:
-                        print(f"         ⚠️ Failed to read getUniqueParticipants(): {e}")
-                        print(f"         Make sure the new contract logic is deployed!")
-
-                except Exception as e:
-                    print(f"      ⚠️  {kind} {item_cs[:10]}... processing failed: {e}")
-                    continue
-
-            after = len(unique_users)
-            print(f"      📊 total per-item admin txs scraped: {total_item_txs}")
-            print(f"      👥 unique_users grew by {after - before} from {kind} contracts (total now: {after})")
-            print(f"   ✅ {chain_name}/{factory_cs[:10]}... {'QUEST' if kind == 'quest' else 'QUIZ'}-FACTORY done: {len(factory_txs)} txs | {len(item_addrs)} {kind}s | +{after - before} unique users")
-
-        if quest_quiz_tx_count > 0:
-            print(f"   📊 {chain_name}: +{quest_quiz_tx_count} txs from quest/quiz factories")
-        # ── End Quest/Quiz block ────────────────────────────────────────────
-        
         all_txs_count += chain_tx_count
         network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": chain_tx_count, "color": chain_color})
         network_faucets_list.append({"network": chain_name, "faucets": chain_faucet_count})
-        print(f"   ✅ {chain_name}: {chain_tx_count} txs total (faucet + quest + quiz), {chain_faucet_count} active faucets")
+        print(f"   ✅ {chain_name}: {chain_tx_count} txs total (faucets + checkins), {chain_faucet_count} active faucets")
+
+    # ── Quest + Quiz unique users: pulled from Supabase once, after chain loop ──
+    if supabase:
+        try:
+            q_rows  = supabase.table("quest_participants")\
+                .select("wallet_address").execute().data or []
+            qz_rows = supabase.table("faucet_quiz_participants")\
+                .select("wallet_address").execute().data or []
+            before = len(unique_users)
+            for row in q_rows + qz_rows:
+                addr = (row.get("wallet_address") or "").strip().lower()
+                if addr:
+                    unique_users.add(addr)
+            print(
+                f"👥 Quest/Quiz participants merged from Supabase: "
+                f"+{len(unique_users) - before} new unique "
+                f"(quest={len(q_rows)}, quiz={len(qz_rows)}, total unique={len(unique_users)})"
+            )
+        except Exception as e:
+            print(f"⚠️  Failed to load quest/quiz participants from Supabase: {e}")
         
     print(f"🔤 Fetching names for {len(faucet_stats)} faucets...")
     for addr_lower, stats in faucet_stats.items():
@@ -1020,9 +969,111 @@ async def refresh_all_data():
         "last_updated":         datetime.utcnow().isoformat(),
     }
     print(f"✅ Done: {total_claims} claims | {len(unique_users)} unique users | {dashboard_data['total_faucets']} faucets | {all_txs_count} txs")
-    save_dashboard_to_supabase(dashboard_data)
-     
+    save_dashboard_to_supabase(dashboard_data)  
+@app.get("/api/quests")
+async def get_all_quests_for_dashboard():
+    """All quests for the analytics dashboard table."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    try:
+        quest_rows = supabase.table("quests").select("*").execute().data or []
 
+        # participant counts
+        p_rows = supabase.table("quest_participants")\
+            .select("quest_address, wallet_address").execute().data or []
+        participant_counts: dict = {}
+        for p in p_rows:
+            addr = p["quest_address"]
+            participant_counts[addr] = participant_counts.get(addr, 0) + 1
+
+        # task counts
+        t_rows = supabase.table("faucet_tasks")\
+            .select("faucet_address, tasks").execute().data or []
+        task_counts: dict = {
+            r["faucet_address"]: len(r.get("tasks") or [])
+            for r in t_rows
+        }
+
+        quests = []
+        for q in quest_rows:
+            addr = q.get("faucet_address", "")
+            quests.append({
+                "faucetAddress":     addr,
+                "title":             q.get("title", "Untitled Quest"),
+                "isActive":          q.get("is_active", False),
+                "isDraft":           q.get("is_draft", False),
+                "isFunded":          q.get("is_funded", False),
+                "totalParticipants": participant_counts.get(addr, 0),
+                "tasksCount":        task_counts.get(addr, 0),
+                "rewardPool":        q.get("reward_pool", "0"),
+                "tokenSymbol":       q.get("token_symbol", ""),
+            })
+
+        return {"success": True, "quests": quests, "count": len(quests)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quiz/list")
+async def get_all_quizzes_for_dashboard():
+    """All quizzes for the analytics dashboard table."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    try:
+        quiz_rows = supabase.table("faucet_quizzes").select(
+            "id, code, title, status, chain_id, created_at"
+        ).execute().data or []
+
+        quiz_ids = [q["id"] for q in quiz_rows]
+        if not quiz_ids:
+            return {"success": True, "quizzes": [], "count": 0}
+
+        # participant counts
+        p_rows = supabase.table("faucet_quiz_participants")\
+            .select("quiz_id").execute().data or []
+        player_counts: dict = {}
+        for p in p_rows:
+            qid = p["quiz_id"]
+            player_counts[qid] = player_counts.get(qid, 0) + 1
+
+        # question counts
+        q_rows = supabase.table("faucet_quiz_questions")\
+            .select("quiz_id").execute().data or []
+        question_counts: dict = {}
+        for q in q_rows:
+            qid = q["quiz_id"]
+            question_counts[qid] = question_counts.get(qid, 0) + 1
+
+        # rewards
+        r_rows = supabase.table("faucet_quiz_rewards")\
+            .select("quiz_id, pool_amount, token_symbol").execute().data or []
+        reward_map: dict = {
+            r["quiz_id"]: {
+                "poolAmount":  float(r.get("pool_amount") or 0),
+                "tokenSymbol": r.get("token_symbol", ""),
+            }
+            for r in r_rows
+        }
+
+        quizzes = []
+        for q in quiz_rows:
+            qid    = q["id"]
+            reward = reward_map.get(qid)
+            quizzes.append({
+                "code":           (q.get("code") or "").upper(),
+                "title":          q.get("title", "Untitled Quiz"),
+                "status":         q.get("status", "waiting"),
+                "playerCount":    player_counts.get(qid, 0),
+                "totalQuestions": question_counts.get(qid, 0),
+                "reward": reward if reward and reward["poolAmount"] > 0 else None,
+            })
+
+        order = {"active": 0, "waiting": 1, "finished": 2}
+        quizzes.sort(key=lambda x: order.get(x["status"], 3))
+
+        return {"success": True, "quizzes": quizzes, "count": len(quizzes)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ====================== SUPABASE DASHBOARD LOADER ======================
 
