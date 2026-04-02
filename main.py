@@ -873,33 +873,103 @@ async def refresh_all_data():
                 unique_users.update(checkin_participants)
                 print(f"      🔄 CHECKIN fallback {stats['addr_checksum'][:10]}...: {checkin_count} txs (+{len(unique_users)-before} new unique)")
 
-        # ── Quest / Quiz: NO on-chain calls — data comes from Supabase ───────
-        # (see post-loop block below for participant ingestion)
+        # ── Quest + Quiz: factory txs + getUniqueParticipants on-chain,
+        #    item addresses from Supabase (skips getAllQuests/getAllQuizzes) ───
+        quest_quiz_tx_count = 0
+        for kind, cfg_key, supabase_table, addr_col in (
+            ("quest", "Quests", "quests",        "faucet_address"),
+            ("quiz",  "quiz",   "faucet_quizzes", "faucet_address"),
+        ):
+            factory_addrs_raw = cfg.get(cfg_key, [])
+            if isinstance(factory_addrs_raw, str):
+                factory_addrs_raw = [factory_addrs_raw] if factory_addrs_raw else []
+
+            for factory_addr_raw in factory_addrs_raw:
+                if not factory_addr_raw or is_placeholder_address(factory_addr_raw):
+                    continue
+                factory_cs = safe_checksum(w3, factory_addr_raw)
+                if not factory_cs:
+                    print(f"   ⚠️  {chain_name} {kind} factory: invalid checksum for {factory_addr_raw}")
+                    continue
+
+                print(f"   🔍 {chain_name} {kind.upper()} factory: {factory_cs}")
+
+                factory_abi    = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
+                item_abi       = QUEST_ABI         if kind == "quest" else QUIZ_ABI
+                per_item_tx_fn = "getQuestTransactions" if kind == "quest" else "getQuizTransactions"
+
+                # ── getAllTransactions() on-chain (factory level) ─────────────
+                factory_txs = []
+                try:
+                    fc = w3.eth.contract(address=factory_cs, abi=factory_abi)
+                    factory_txs = fc.functions.getAllTransactions().call()
+                    print(f"      ✅ getAllTransactions(): {len(factory_txs)} txs")
+                except Exception:
+                    print(f"      ⚠️  getAllTransactions() not available on {kind} factory {factory_cs[:10]}... — skipping")
+
+                quest_quiz_tx_count += len(factory_txs)
+                chain_tx_count      += len(factory_txs)
+
+                # ── Item addresses from Supabase (replaces getAllQuests/getAllQuizzes) ──
+                item_addrs = []
+                try:
+                    sb_rows = supabase.table(supabase_table)\
+                        .select(addr_col)\
+                        .execute().data or []
+                    item_addrs = [
+                        r[addr_col] for r in sb_rows
+                        if r.get(addr_col) and not is_placeholder_address(r[addr_col])
+                    ]
+                    print(f"      ✅ {supabase_table} (Supabase): {len(item_addrs)} {kind}s found")
+                except Exception as e:
+                    print(f"      ⚠️  Supabase {supabase_table} fetch failed: {e}")
+
+                before         = len(unique_users)
+                total_item_txs = 0
+
+                for item_raw in item_addrs:
+                    item_cs = safe_checksum(w3, item_raw)
+                    if not item_cs:
+                        continue
+                    try:
+                        # Per-item tx count (optional)
+                        try:
+                            fc_item  = w3.eth.contract(address=factory_cs, abi=factory_abi)
+                            item_txs = fc_item.functions[per_item_tx_fn](
+                                w3.to_checksum_address(item_cs)
+                            ).call()
+                            total_item_txs += len(item_txs)
+                            print(f"      📄 {kind} {item_cs[:10]}...: {len(item_txs)} admin txs")
+                        except Exception:
+                            pass
+
+                        # getUniqueParticipants() on-chain ────────────────────
+                        item_contract = w3.eth.contract(address=item_cs, abi=item_abi)
+                        try:
+                            participants = item_contract.functions.getUniqueParticipants().call()
+                            for p in participants:
+                                unique_users.add(str(p).lower())
+                        except Exception as e:
+                            print(f"         ⚠️ getUniqueParticipants() failed on {item_cs[:10]}...: {e}")
+
+                    except Exception as e:
+                        print(f"      ⚠️  {kind} {item_cs[:10]}... processing failed: {e}")
+                        continue
+
+                after = len(unique_users)
+                print(f"      📊 total per-item admin txs: {total_item_txs}")
+                print(f"      👥 unique_users +{after - before} from {kind} @ {factory_cs[:10]}... (total: {after})")
+                print(f"   ✅ {chain_name}/{factory_cs[:10]}... {'QUEST' if kind == 'quest' else 'QUIZ'}-FACTORY: "
+                      f"{len(factory_txs)} txs | {len(item_addrs)} {kind}s | +{after - before} users")
+
+        if quest_quiz_tx_count > 0:
+            print(f"   📊 {chain_name}: +{quest_quiz_tx_count} txs from quest/quiz factories")
+        # ── End Quest/Quiz block ────────────────────────────────────────────
 
         all_txs_count += chain_tx_count
         network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": chain_tx_count, "color": chain_color})
         network_faucets_list.append({"network": chain_name, "faucets": chain_faucet_count})
-        print(f"   ✅ {chain_name}: {chain_tx_count} txs total (faucets + checkins), {chain_faucet_count} active faucets")
-
-    # ── Quest + Quiz unique users: pulled from Supabase once, after chain loop ──
-    if supabase:
-        try:
-            q_rows  = supabase.table("quest_participants")\
-                .select("wallet_address").execute().data or []
-            qz_rows = supabase.table("faucet_quiz_participants")\
-                .select("wallet_address").execute().data or []
-            before = len(unique_users)
-            for row in q_rows + qz_rows:
-                addr = (row.get("wallet_address") or "").strip().lower()
-                if addr:
-                    unique_users.add(addr)
-            print(
-                f"👥 Quest/Quiz participants merged from Supabase: "
-                f"+{len(unique_users) - before} new unique "
-                f"(quest={len(q_rows)}, quiz={len(qz_rows)}, total unique={len(unique_users)})"
-            )
-        except Exception as e:
-            print(f"⚠️  Failed to load quest/quiz participants from Supabase: {e}")
+        print(f"   ✅ {chain_name}: {chain_tx_count} txs total (faucet + quest + quiz), {chain_faucet_count} active faucets")
         
     print(f"🔤 Fetching names for {len(faucet_stats)} faucets...")
     for addr_lower, stats in faucet_stats.items():
@@ -969,7 +1039,8 @@ async def refresh_all_data():
         "last_updated":         datetime.utcnow().isoformat(),
     }
     print(f"✅ Done: {total_claims} claims | {len(unique_users)} unique users | {dashboard_data['total_faucets']} faucets | {all_txs_count} txs")
-    save_dashboard_to_supabase(dashboard_data)  
+    save_dashboard_to_supabase(dashboard_data)
+
 @app.get("/api/quests")
 async def get_all_quests_for_dashboard():
     """All quests for the analytics dashboard table."""
