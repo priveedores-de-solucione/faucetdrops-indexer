@@ -2298,6 +2298,131 @@ async def get_blog_posts(page: int = 1, limit: int = 12, tag: str = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ====================== GLOBAL CLAIMS CACHE ======================
+global_claims_cache: List[Dict] = []
+claims_last_updated: Optional[datetime] = None
+
+async def refresh_claims_cache():
+    """
+    Fetches all claims across all networks and enriches them with 
+    Supabase metadata (names, symbols, decimals).
+    """
+    global global_claims_cache, claims_last_updated
+    print(f"🔄 [refresh_claims_cache] Fetching all claims from RPCs...")
+    
+    loop = asyncio.get_running_loop()
+
+    def _fetch_claims_sync():
+        fetched = []
+        
+        # 1. Pre-fetch Supabase metadata for quick enrichment
+        faucet_meta_map = {}
+        if supabase:
+            try:
+                resp = supabase.table("faucet_details").select(
+                    "faucet_address, faucet_name, token_symbol, token_decimals"
+                ).execute()
+                if resp.data:
+                    for row in resp.data:
+                        faucet_meta_map[row["faucet_address"].lower()] = {
+                            "name": row.get("faucet_name", "Unknown Faucet"),
+                            "symbol": row.get("token_symbol", "TOKEN"),
+                            "decimals": row.get("token_decimals", 18)
+                        }
+            except Exception as e:
+                print(f"⚠️ [refresh_claims_cache] Supabase meta fetch failed: {e}")
+
+        # 2. Iterate through chains and factories to get on-chain claims
+        for chain_id, cfg in CHAIN_CONFIGS.items():
+            chain_name = cfg["name"]
+            try:
+                w3 = get_web3(cfg["rpcUrls"])
+            except Exception:
+                continue
+
+            for factory_addr in cfg.get("factoryAddresses", []):
+                if is_placeholder_address(factory_addr):
+                    continue
+                    
+                addr_checksum = safe_checksum(w3, factory_addr)
+                if not addr_checksum:
+                    continue
+
+                # Use existing helper to extract factory data
+                contract_type, factory_txs, _ = detect_and_call(w3, addr_checksum)
+
+                if contract_type in ("factory", "quest") and factory_txs:
+                    for tx in factory_txs:
+                        tx_type = str(tx[1]).lower()
+                        # Target standard claims and active claims
+                        if "claim" in tx_type:
+                            faucet_addr = str(tx[0])
+                            meta = faucet_meta_map.get(faucet_addr.lower(), {})
+                            
+                            fetched.append({
+                                "faucet": faucet_addr,
+                                "faucet_name": meta.get("name", f"Faucet {faucet_addr[:6]}"),
+                                "claimer": str(tx[2]),
+                                "amount": str(tx[3]),
+                                "token_symbol": meta.get("symbol", "TOKEN"),
+                                "token_decimals": meta.get("decimals", 18),
+                                "is_ether": bool(tx[4]),
+                                "time": int(tx[5]),
+                                "network": chain_name,
+                                "chain_id": chain_id,
+                                "transaction_type": tx_type
+                            })
+        return fetched
+
+    try:
+        # Run blocking RPC calls in executor to keep FastAPI fast
+        new_claims = await loop.run_in_executor(None, _fetch_claims_sync)
+        
+        # Sort newest first
+        new_claims.sort(key=lambda x: x["time"], reverse=True)
+        
+        global_claims_cache = new_claims
+        claims_last_updated = datetime.utcnow()
+        print(f"✅ [refresh_claims_cache] Successfully cached {len(new_claims)} claims.")
+    except Exception as e:
+        print(f"⚠️ [refresh_claims_cache] Failed: {e}")
+
+
+@app.get("/api/claims")
+async def get_all_claims(
+    limit: int = Query(100, ge=1, le=5000, description="Max claims to return"),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Returns the globally cached list of all recent drops/claims.
+    Auto-refreshes in the background if the cache is older than 10 minutes.
+    """
+    global global_claims_cache, claims_last_updated
+
+    CACHE_TTL_SECONDS = 10 * 60  # 10 minutes
+
+    cache_stale = (
+        not global_claims_cache
+        or claims_last_updated is None
+        or (datetime.utcnow() - claims_last_updated).total_seconds() > CACHE_TTL_SECONDS
+    )
+
+    if cache_stale:
+        if not global_claims_cache:
+            # If server just started and has NO data, wait for the fetch
+            await refresh_claims_cache()
+        else:
+            # If we have stale data, return it instantly and refresh in the background
+            if background_tasks:
+                background_tasks.add_task(refresh_claims_cache)
+
+    return {
+        "success": True,
+        "total": len(global_claims_cache),
+        "returned": len(global_claims_cache[:limit]),
+        "last_updated": claims_last_updated.isoformat() if claims_last_updated else None,
+        "claims": global_claims_cache[:limit]
+    }
 
 @app.get("/api/blog/posts/{slug}")
 async def get_blog_post(slug: str):
@@ -2387,6 +2512,7 @@ async def like_blog_post(slug: str, fingerprint: str):
 scheduler = AsyncIOScheduler()
 scheduler.add_job(refresh_all_data,        "interval", hours=3)
 scheduler.add_job(refresh_analytics_cache, "interval", hours=3)
+scheduler.add_job(refresh_claims_cache,    "interval", minutes=15)
 scheduler.add_job(refresh_network_faucets, "interval", hours=3)
 scheduler.start()
 
@@ -2407,9 +2533,10 @@ async def startup():
         except Exception as e:
             print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
 
-    asyncio.create_task(refresh_all_data())
-    #Sasyncio.create_task(refresh_network_faucets())
-    asyncio.create_task(refresh_analytics_cache())
+    #asyncio.create_task(refresh_all_data())
+    #asyncio.create_task(refresh_network_faucets())
+    #asyncio.create_task(refresh_analytics_cache())
+    asyncio.create_task(refresh_claims_cache())
 
 
 # ====================== RENDER.COM COMPATIBLE RUN ======================
