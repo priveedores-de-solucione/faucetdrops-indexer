@@ -2305,7 +2305,7 @@ claims_last_updated: Optional[datetime] = None
 async def refresh_claims_cache():
     """
     Fetches all claims across all networks and enriches them with 
-    Supabase metadata (names, symbols, decimals).
+    Supabase metadata (names, symbols, decimals, AND SLUGS).
     """
     global global_claims_cache, claims_last_updated
     print(f"🔄 [refresh_claims_cache] Fetching all claims from RPCs...")
@@ -2315,19 +2315,22 @@ async def refresh_claims_cache():
     def _fetch_claims_sync():
         fetched = []
         
-        # 1. Pre-fetch Supabase metadata for quick enrichment
+        # 1. Pre-fetch Supabase metadata for quick enrichment (This is our "LEFT JOIN")
         faucet_meta_map = {}
         if supabase:
             try:
+                # 👈 Added 'slug' to the select query
                 resp = supabase.table("faucet_details").select(
-                    "faucet_address, faucet_name, token_symbol, token_decimals"
+                    "faucet_address, faucet_name, token_symbol, token_decimals, slug" 
                 ).execute()
+                
                 if resp.data:
                     for row in resp.data:
                         faucet_meta_map[row["faucet_address"].lower()] = {
                             "name": row.get("faucet_name", "Unknown Faucet"),
                             "symbol": row.get("token_symbol", "TOKEN"),
-                            "decimals": row.get("token_decimals", 18)
+                            "decimals": row.get("token_decimals", 18),
+                            "slug": row.get("slug") # 👈 Store the slug in our lookup map
                         }
             except Exception as e:
                 print(f"⚠️ [refresh_claims_cache] Supabase meta fetch failed: {e}")
@@ -2357,11 +2360,13 @@ async def refresh_claims_cache():
                         # Target standard claims and active claims
                         if "claim" in tx_type:
                             faucet_addr = str(tx[0])
+                            # 👈 Look up the metadata using the contract address
                             meta = faucet_meta_map.get(faucet_addr.lower(), {})
                             
                             fetched.append({
                                 "faucet": faucet_addr,
                                 "faucet_name": meta.get("name", f"Faucet {faucet_addr[:6]}"),
+                                "slug": meta.get("slug"), # 👈 Attach the slug to the final response!
                                 "claimer": str(tx[2]),
                                 "amount": str(tx[3]),
                                 "token_symbol": meta.get("symbol", "TOKEN"),
@@ -2386,8 +2391,6 @@ async def refresh_claims_cache():
         print(f"✅ [refresh_claims_cache] Successfully cached {len(new_claims)} claims.")
     except Exception as e:
         print(f"⚠️ [refresh_claims_cache] Failed: {e}")
-
-
 @app.get("/api/claims")
 async def get_all_claims(
     limit: int = Query(100, ge=1, le=5000, description="Max claims to return"),
@@ -2533,9 +2536,9 @@ async def startup():
         except Exception as e:
             print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
 
-    #asyncio.create_task(refresh_all_data())
-    #asyncio.create_task(refresh_network_faucets())
-    #asyncio.create_task(refresh_analytics_cache())
+    asyncio.create_task(refresh_all_data())
+    asyncio.create_task(refresh_network_faucets())
+    asyncio.create_task(refresh_analytics_cache())
     asyncio.create_task(refresh_claims_cache())
 
 
