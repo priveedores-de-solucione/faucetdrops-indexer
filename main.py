@@ -41,7 +41,6 @@ BLOG_ADMIN_USERNAME = os.getenv("BLOG_ADMIN_USERNAME","")
 BLOG_ADMIN_PASSWORD = os.getenv("BLOG_ADMIN_PASSWORD", "")
 BLOG_SECRET_KEY     = os.getenv("BLOG_SECRET_KEY", "")
 DATABASE_URL        = os.getenv("DATABASE_URL", "")
-# In-memory session store  { token: expires_at }
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -60,7 +59,6 @@ def is_valid_session(token: str) -> bool:
             .execute()
         if not result.data:
             return False
-        # Extend session on every activity (sliding expiry)
         new_expiry = datetime.now(timezone.utc) + timedelta(days=365)
         supabase.table("blog_sessions").update({
             "expires_at": new_expiry.isoformat()
@@ -97,7 +95,7 @@ class CreateBlogRequest(BaseModel):
     authorAvatar: str = ""
     authorHandle: str = ""
     sourceUrl: str = ""
-    sessionToken: str  # required for all write operations
+    sessionToken: str
 
 class ExtractUrlRequest(BaseModel):
     url: str
@@ -221,7 +219,19 @@ CHAIN_CONFIGS: Dict[int, Dict] = {
         "nativeCurrency": {"symbol": "BNB", "decimals": 18},
         "blockExplorer": "https://bscscan.com/",
     },
-    
+    11142220: {
+        "name": "Testnet",
+        "rpcUrls": [
+      "https://forno.celo-sepolia.celo-testnet.org",
+      "https://celo-sepolia.g.alchemy.com/v2/sXHCrL5-xwYkPtkRC_WTEZHvIkOVTbw-",
+      "https://celo-sepolia.infura.io/v3/e9fa8c3350054dafa40019a5b604679f",
+    ],
+        "factoryAddresses": ["0x69a12ecB86A9510c70CEB72d209A7d8b034ca5fE"],
+        "Quests": [""],
+        "quiz":   [""],
+        "nativeCurrency": {"symbol": "ETH", "decimals": 18},
+        "blockExplorer": "https://celo-sepolia.blockscout.com/",
+    }
 }
 
 CHAIN_CONFIGS_V2: Dict[int, Dict] = {
@@ -274,6 +284,13 @@ CHAIN_CONFIGS_V2: Dict[int, Dict] = {
             "0x4B8c7A12660C4847c65662a953F517198fBFc0ED": "custom",
         },
     },
+        11142220: {
+            "name": "Testnet",
+            "rpcUrls": CHAIN_CONFIGS[11142220]["rpcUrls"],
+            "factories": {
+                "0x69a12ecB86A9510c70CEB72d209A7d8b034ca5fE": "dropcode",
+            },
+        },
     
 }
 
@@ -282,6 +299,7 @@ NATIVE_SYMBOLS: Dict[int, str] = {
     1135:  "ETH",
     42161: "ETH",
     8453:  "ETH",
+    11142220: "CELO",
     56:    "BNB",
     
 }
@@ -354,13 +372,41 @@ def _chunks(lst: List, n: int):
 
 
 async def fetch_deleted_faucets() -> set:
+    """
+    FIX: Fetches deleted faucets from BOTH the API endpoint AND the Supabase
+    'deleted_faucets' table to ensure nothing slips through.
+    """
+    deleted: set = set()
+
+    # Source 1: API endpoint
     try:
         r = requests.get("https://faucetdrop-backend.onrender.com/deleted-faucets", timeout=5)
         if r.ok:
-            return {a.lower() for a in r.json().get("deletedAddresses", [])}
+            deleted.update(a.lower() for a in r.json().get("deletedAddresses", []))
     except Exception:
         pass
-    return set()
+
+    # Source 2: Supabase deleted_faucets table (belt-and-suspenders)
+    if supabase:
+        try:
+            rows = supabase.table("deleted_faucets").select("faucet_address").execute().data or []
+            deleted.update(r["faucet_address"].lower() for r in rows if r.get("faucet_address"))
+        except Exception:
+            pass  # table may not exist — that's fine
+
+    return deleted
+
+
+def _is_deleted_onchain(w3: Web3, faucet_cs: str) -> bool:
+    """
+    FIX: Check the on-chain `deleted` flag on the faucet contract itself.
+    This gates faucets even if the deleted-faucets API/DB is stale.
+    """
+    try:
+        contract = w3.eth.contract(address=faucet_cs, abi=FAUCET_ABI)
+        return bool(contract.functions.deleted().call())
+    except Exception:
+        return False  # if we can't read, assume not deleted
 
 
 def get_faucet_name_sync(w3: Web3, addr_checksum: str) -> str:
@@ -433,14 +479,6 @@ def resolve_token_symbol(
     is_ether: bool,
     chain_id: int,
 ) -> tuple[str, int]:
-    """
-    Returns (token_symbol, token_decimals).
-
-    Resolution order:
-      1. Native ETH/BNB/CELO → from NATIVE_SYMBOLS map
-      2. ERC-20 token               → call symbol() + decimals() on-chain
-      3. Fallback                   → "TOKEN" / 18
-    """
     zero_addr = "0x0000000000000000000000000000000000000000"
 
     if is_ether or token_addr.lower() == zero_addr:
@@ -468,19 +506,14 @@ def fetch_faucet_details_sync(
     factory_type: str,
     chain_id: int,
 ) -> Optional[Dict]:
-    """
-    Fetches all on-chain faucet state and returns a fully-populated dict
-    ready for upsert into the `faucet_details` Supabase table.
-
-    Token resolution is handled by resolve_token_symbol(), which correctly
-    distinguishes native assets (ETH/BNB/CELO) from ERC-20 tokens.
-    """
     try:
         checksum = w3.to_checksum_address(faucet_address)
         contract = w3.eth.contract(address=checksum, abi=FAUCET_ABI)
 
+        # FIX: Always check the on-chain deleted flag first
         deleted_flag = _safe_call(contract, "deleted") or False
         if deleted_flag:
+            print(f"      🗑️  {checksum[:10]}... is deleted on-chain — skipping")
             return None
 
         name            = _safe_call(contract, "name")          or f"Faucet {faucet_address[:6]}...{faucet_address[-4:]}"
@@ -497,7 +530,6 @@ def fetch_faucet_details_sync(
         balance  = str(balance_tuple[0]) if balance_tuple else "0"
         is_ether = bool(balance_tuple[1]) if balance_tuple else False
 
-        # ── Resolve token symbol + decimals (always calls on-chain for ERC-20s)
         token_symbol, token_decimals = resolve_token_symbol(
             w3, str(token_addr), is_ether, chain_id
         )
@@ -515,8 +547,8 @@ def fetch_faucet_details_sync(
             "factory_type":    factory_type,
             "faucet_name":     name,
             "token_address":   str(token_addr).lower(),
-            "token_symbol":    token_symbol,      # ← resolved symbol (CELO/ETH/BNB/USDC/…)
-            "token_decimals":  token_decimals,    # ← resolved decimals
+            "token_symbol":    token_symbol,
+            "token_decimals":  token_decimals,
             "is_ether":        is_ether,
             "balance":         balance,
             "claim_amount":    str(claim_amount),
@@ -643,39 +675,192 @@ def save_dashboard_to_supabase(data: Dict[str, Any]) -> None:
 
         print(f"✅ [save_dashboard_to_supabase] all tables updated at {now_iso}")
 
-        # ── 6. Evict deleted faucets ──────────────────────────────────────────
+        # ── 6. Evict deleted faucets from claim_data ──────────────────────────
         try:
-            r = requests.get("https://faucetdrop-backend.onrender.com/deleted-faucets", timeout=5)
-            if r.ok:
-                deleted_addrs = {a.lower() for a in r.json().get("deletedAddresses", [])}
-                for addr in deleted_addrs:
-                    supabase.table("claim_data").delete().eq("faucet_address", addr).execute()
-                if deleted_addrs:
-                    print(f"   🗑️  Evicted {len(deleted_addrs)} deleted faucets from claim_data")
+            deleted_addrs = asyncio.get_event_loop().run_until_complete(fetch_deleted_faucets())
+            for addr in deleted_addrs:
+                supabase.table("claim_data").delete().eq("faucet_address", addr).execute()
+            if deleted_addrs:
+                print(f"   🗑️  Evicted {len(deleted_addrs)} deleted faucets from claim_data")
         except Exception as evict_err:
             print(f"   ⚠️  Eviction step failed: {evict_err}")
 
     except Exception as e:
         print(f"⚠️  [save_dashboard_to_supabase] failed: {e}")
 
+async def collect_quest_quiz_unique_participants() -> set:
+    """
+    FIX: Also reads participants directly from Supabase tables
+    (quest_participants, faucet_quiz_participants) as a supplement to
+    on-chain calls, so we never miss users that are in the DB but not
+    yet reflected on-chain or vice versa.
+    """
+    all_participants: set = set()
 
+    _PARTICIPANTS_ABI = [
+        {
+            "inputs": [],
+            "name": "getUniqueParticipants",
+            "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
+            "stateMutability": "view",
+            "type": "function",
+        }
+    ]
+    _GET_ALL_QUESTS_ABI = [
+        {
+            "inputs": [],
+            "name": "getAllQuests",
+            "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
+            "stateMutability": "view",
+            "type": "function",
+        }
+    ]
+    _GET_ALL_QUIZZES_ABI = [
+        {
+            "inputs": [],
+            "name": "getAllQuizzes",
+            "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
+            "stateMutability": "view",
+            "type": "function",
+        }
+    ]
+
+    loop = asyncio.get_running_loop()
+
+    def _fetch_sync():
+        participants: set = set()
+
+        for chain_id, cfg in CHAIN_CONFIGS.items():
+            chain_name = cfg["name"]
+            try:
+                w3 = get_web3(cfg["rpcUrls"])
+            except Exception as e:
+                print(f"   ⚠️  [{chain_name}] RPC failed: {e}")
+                continue
+
+            kinds = [
+                ("quest", cfg.get("Quests", []), _GET_ALL_QUESTS_ABI, "quests",          "faucet_address"),
+                ("quiz",  cfg.get("quiz",   []), _GET_ALL_QUIZZES_ABI, "faucet_quizzes", "faucet_address"),
+            ]
+
+            for kind, factory_addrs_raw, getter_abi, sb_table, sb_col in kinds:
+                if isinstance(factory_addrs_raw, str):
+                    factory_addrs_raw = [factory_addrs_raw] if factory_addrs_raw else []
+
+                item_addresses: set = set()
+
+                for factory_raw in factory_addrs_raw:
+                    if not factory_raw or is_placeholder_address(factory_raw):
+                        continue
+                    factory_cs = safe_checksum(w3, factory_raw)
+                    if not factory_cs:
+                        continue
+
+                    try:
+                        fc = w3.eth.contract(address=factory_cs, abi=getter_abi)
+                        fn_name = "getAllQuests" if kind == "quest" else "getAllQuizzes"
+                        on_chain_addrs = fc.functions[fn_name]().call()
+                        item_addresses.update(a.lower() for a in on_chain_addrs if a)
+                        print(f"   ✅ [{chain_name}] {kind} factory {factory_cs[:10]}...: "
+                              f"{len(on_chain_addrs)} addresses from chain")
+                    except Exception as e:
+                        print(f"   ⚠️  [{chain_name}] {kind} factory {factory_cs[:10]}... "
+                              f"on-chain getter failed: {e}")
+
+                if supabase:
+                    try:
+                        rows = supabase.table(sb_table).select(sb_col).execute().data or []
+                        sb_addrs = {r[sb_col].lower() for r in rows if r.get(sb_col)
+                                    and not is_placeholder_address(r[sb_col])}
+                        new_from_sb = sb_addrs - item_addresses
+                        if new_from_sb:
+                            print(f"   ➕ [{chain_name}] {kind} Supabase added "
+                                  f"{len(new_from_sb)} extra addresses")
+                        item_addresses.update(sb_addrs)
+                    except Exception as e:
+                        print(f"   ⚠️  [{chain_name}] {kind} Supabase fetch failed: {e}")
+
+                print(f"   🔍 [{chain_name}] calling getUniqueParticipants on "
+                      f"{len(item_addresses)} {kind} contracts...")
+
+                for addr_lower in item_addresses:
+                    cs = safe_checksum(w3, addr_lower)
+                    if not cs:
+                        continue
+                    try:
+                        contract = w3.eth.contract(address=cs, abi=_PARTICIPANTS_ABI)
+                        raw_participants = contract.functions.getUniqueParticipants().call()
+                        before = len(participants)
+                        participants.update(p.lower() for p in raw_participants if p)
+                        added = len(participants) - before
+                        print(f"      📄 {kind} {cs[:10]}...: "
+                              f"{len(raw_participants)} participants, +{added} new unique")
+                    except Exception as e:
+                        print(f"      ⚠️  {kind} {cs[:10]}... getUniqueParticipants failed: {e}")
+
+        return participants
+
+    # FIX: Also pull participants directly from Supabase DB tables
+    # These catch users recorded by the backend but not yet on-chain
+    def _fetch_db_participants() -> set:
+        db_participants: set = set()
+        if not supabase:
+            return db_participants
+
+        # Quest participants from DB
+        try:
+            rows = supabase.table("quest_participants").select("wallet_address").execute().data or []
+            added = {r["wallet_address"].lower() for r in rows if r.get("wallet_address")}
+            db_participants.update(added)
+            print(f"   📦 [DB] quest_participants: {len(added)} wallet addresses")
+        except Exception as e:
+            print(f"   ⚠️  [DB] quest_participants fetch failed: {e}")
+
+        # Quiz participants from DB
+        try:
+            rows = supabase.table("faucet_quiz_participants").select("wallet_address").execute().data or []
+            added = {r["wallet_address"].lower() for r in rows if r.get("wallet_address")}
+            db_participants.update(added)
+            print(f"   📦 [DB] faucet_quiz_participants: {len(added)} wallet addresses")
+        except Exception as e:
+            print(f"   ⚠️  [DB] faucet_quiz_participants fetch failed: {e}")
+
+        return db_participants
+
+    try:
+        onchain_result = await loop.run_in_executor(None, _fetch_sync)
+        db_result      = await loop.run_in_executor(None, _fetch_db_participants)
+
+        combined = onchain_result | db_result
+        only_in_db = db_result - onchain_result
+
+        print(
+            f"\n  📊 Quest/Quiz participants:\n"
+            f"     On-chain (getUniqueParticipants): {len(onchain_result)}\n"
+            f"     DB-only (quest+quiz tables):      {len(only_in_db)}\n"
+            f"     Combined unique:                  {len(combined)}"
+        )
+
+        print(f"\n✅ [collect_quest_quiz_unique_participants] "
+              f"Total truly unique participants across all quests + quizzes: {len(combined)}")
+        return combined
+    except Exception as e:
+        print(f"⚠️  [collect_quest_quiz_unique_participants] failed: {e}")
+        return set()
+    
+    
 # ====================== BACKGROUND JOB: network_faucets + faucet_details ======================
 
 async def refresh_network_faucets():
     """
     Crawls every chain → every typed factory → every faucet.
-    Resolves the on-chain token symbol for each faucet and writes it to
-    both `network_faucets` (meta) and `faucet_details` in Supabase.
+    FIX: Checks BOTH on-chain deleted flag AND deleted-faucets list before saving.
+    FIX: Cleans up stale deleted rows from both network_faucets and faucet_details.
     """
     print(f"🔄 [refresh_network_faucets] started at {datetime.utcnow()}")
 
-    deleted_set: set = set()
-    try:
-        r = requests.get("https://faucetdrop-backend.onrender.com/deleted-faucets", timeout=5)
-        if r.ok:
-            deleted_set = {a.lower() for a in r.json().get("deletedAddresses", [])}
-    except Exception:
-        pass
+    deleted_set: set = await fetch_deleted_faucets()
+    print(f"   🗑️  Gating {len(deleted_set)} known deleted faucets")
 
     for chain_id, cfg in CHAIN_CONFIGS_V2.items():
         factories_map: Dict[str, str] = cfg.get("factories", {})
@@ -703,17 +888,28 @@ async def refresh_network_faucets():
 
             for faucet_raw in faucet_list:
                 faucet_cs = safe_checksum(w3, faucet_raw)
-                if not faucet_cs or faucet_cs.lower() in deleted_set:
+                if not faucet_cs:
                     continue
 
+                # FIX: Gate 1 — check known deleted list (fast, no RPC)
+                if faucet_cs.lower() in deleted_set:
+                    print(f"      🗑️  {faucet_cs[:10]}... in deleted list — skipping")
+                    continue
+
+                # fetch_faucet_details_sync already does Gate 2 (on-chain deleted flag)
                 detail = fetch_faucet_details_sync(w3, faucet_cs, factory_addr, factory_type, chain_id)
                 if detail is None:
+                    # Either deleted on-chain or fetch failed — evict from DB to be safe
+                    if supabase:
+                        try:
+                            supabase.table("network_faucets").delete().eq("faucet_address", faucet_cs.lower()).execute()
+                            supabase.table("faucet_details").delete().eq("faucet_address", faucet_cs.lower()).execute()
+                        except Exception:
+                            pass
                     continue
 
                 detail_rows.append(detail)
 
-                # ── Meta row: includes token_symbol so the listing views
-                #    can show e.g. "USDC" without fetching faucet_details
                 meta_rows.append({
                     "faucet_address":  detail["faucet_address"],
                     "chain_id":        chain_id,
@@ -722,8 +918,8 @@ async def refresh_network_faucets():
                     "factory_type":    factory_type,
                     "faucet_name":     detail["faucet_name"],
                     "slug":            detail["slug"],
-                    "token_symbol":    detail["token_symbol"],   # ← resolved symbol
-                    "token_decimals":  detail["token_decimals"], # ← resolved decimals
+                    "token_symbol":    detail["token_symbol"],
+                    "token_decimals":  detail["token_decimals"],
                     "is_ether":        detail["is_ether"],
                     "is_claim_active": detail["is_claim_active"],
                     "owner_address":   detail["owner_address"],
@@ -738,24 +934,83 @@ async def refresh_network_faucets():
                     supabase.table("network_faucets").upsert(chunk, on_conflict="faucet_address").execute()
                 for chunk in _chunks(detail_rows, 100):
                     supabase.table("faucet_details").upsert(chunk, on_conflict="faucet_address").execute()
-                print(f"   ✅ {cfg['name']}: saved {len(meta_rows)} faucets "
-                      f"(token symbols resolved: {sum(1 for d in detail_rows if d.get('token_symbol') not in ('TOKEN', ''))} distinct)")
+                print(f"   ✅ {cfg['name']}: saved {len(meta_rows)} live faucets")
             except Exception as e:
                 print(f"   ⚠️  {cfg['name']}: Supabase upsert failed — {e}")
 
-    # Evict deleted faucets from both tables
+    # FIX: Evict ALL known deleted faucets from both tables after crawl
     if supabase and deleted_set:
+        evicted = 0
         for addr in deleted_set:
             try:
                 supabase.table("network_faucets").delete().eq("faucet_address", addr).execute()
                 supabase.table("faucet_details").delete().eq("faucet_address", addr).execute()
+                evicted += 1
             except Exception:
                 pass
+        print(f"   🗑️  Evicted {evicted} deleted faucets from network_faucets + faucet_details")
 
     print(f"✅ [refresh_network_faucets] done")
 
 
 # ====================== BACKGROUND JOB: dashboard ======================
+
+def _fetch_quest_quiz_participant_dates() -> dict:
+    """
+    Returns {wallet_address_lower: "YYYY-MM-DD"} for the earliest
+    participation date across quests and quizzes.
+    Only uses Supabase — on-chain getUniqueParticipants has no timestamps.
+    """
+    first_date: dict = {}
+
+    if not supabase:
+        return first_date
+
+    # Quest participants
+    try:
+        rows = supabase.table("quest_participants")\
+            .select("wallet_address, created_at")\
+            .execute().data or []
+        for r in rows:
+            addr = (r.get("wallet_address") or "").lower()
+            ts   = r.get("created_at")
+            if not addr or not ts:
+                continue
+            try:
+                date_str = datetime.fromisoformat(
+                    str(ts).replace("Z", "+00:00")
+                ).strftime("%Y-%m-%d")
+                if addr not in first_date or date_str < first_date[addr]:
+                    first_date[addr] = date_str
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"   ⚠️  [quest participant dates] {e}")
+
+    # Quiz participants
+    try:
+        rows = supabase.table("faucet_quiz_participants")\
+            .select("wallet_address, created_at")\
+            .execute().data or []
+        for r in rows:
+            addr = (r.get("wallet_address") or "").lower()
+            ts   = r.get("created_at")
+            if not addr or not ts:
+                continue
+            try:
+                date_str = datetime.fromisoformat(
+                    str(ts).replace("Z", "+00:00")
+                ).strftime("%Y-%m-%d")
+                if addr not in first_date or date_str < first_date[addr]:
+                    first_date[addr] = date_str
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"   ⚠️  [quiz participant dates] {e}")
+
+    print(f"   📅 [quest/quiz dates] {len(first_date)} dated participants")
+    return first_date
+
 
 async def refresh_all_data():
     global dashboard_data
@@ -766,9 +1021,11 @@ async def refresh_all_data():
     network_faucets_list = []
     unique_users: set    = set()
     faucet_stats         = {}
+
+    # FIX: Fetch deleted set ONCE from both sources at the start
     deleted = await fetch_deleted_faucets()
-    print(f"   🗑️  Deleted faucets to exclude from counts/claims: {len(deleted)}")
-    
+    print(f"   🗑️  Deleted faucets to exclude: {len(deleted)}")
+
     for chain_id, cfg in CHAIN_CONFIGS.items():
         chain_name  = cfg["name"]
         chain_color = NETWORK_COLORS.get(chain_name, "#888888")
@@ -779,21 +1036,20 @@ async def refresh_all_data():
             network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": 0, "color": chain_color})
             network_faucets_list.append({"network": chain_name, "faucets": 0})
             continue
-            
+
         chain_tx_count     = 0
         chain_faucet_count = 0
         chain_claim_txs    = []
-        
-        # ── Standard Faucets & Checkins ─────────────────────────────────────
+
         for factory_addr in cfg["factoryAddresses"]:
             if is_placeholder_address(factory_addr):
-                continue    
+                continue
             addr_checksum = safe_checksum(w3, factory_addr)
             if not addr_checksum:
                 continue
-                
+
             contract_type, data_a, data_b = detect_and_call(w3, addr_checksum)
-            
+
             if contract_type in ("factory", "quest"):
                 factory_txs      = data_a
                 faucet_addresses = data_b
@@ -802,14 +1058,21 @@ async def refresh_all_data():
                 chain_claim_txs.extend(claims)
                 label = "QUEST" if contract_type == "quest" else "FACTORY"
                 print(f"   📋 {chain_name}/{addr_checksum[:10]}... {label}: {len(factory_txs)} txs, {len(claims)} claims")
-                
+
                 for faucet_raw in faucet_addresses:
                     faucet_cs = safe_checksum(w3, faucet_raw)
                     if not faucet_cs:
                         continue
                     addr_lower = faucet_cs.lower()
+
                     if addr_lower in deleted:
                         continue
+
+                    if addr_lower not in faucet_stats and _is_deleted_onchain(w3, faucet_cs):
+                        print(f"      🗑️  {faucet_cs[:10]}... deleted on-chain — skipping")
+                        deleted.add(addr_lower)
+                        continue
+
                     chain_faucet_count += 1
                     if addr_lower not in faucet_stats:
                         faucet_stats[addr_lower] = {
@@ -817,7 +1080,7 @@ async def refresh_all_data():
                             "network": chain_name, "chainId": chain_id,
                             "w3": w3, "addr_checksum": faucet_cs, "checkin_txs": 0,
                         }
-                        
+
             elif contract_type == "checkin":
                 tx_count     = data_a
                 participants = data_b
@@ -827,7 +1090,8 @@ async def refresh_all_data():
                     chain_faucet_count += 1
                     before = len(unique_users)
                     unique_users.update(participants)
-                    print(f"   🔄 {chain_name}/{addr_checksum[:10]}... CHECKIN: {tx_count} txs, {len(participants)} participants (+{len(unique_users)-before} new unique)")
+                    print(f"   🔄 {chain_name}/{addr_checksum[:10]}... CHECKIN: {tx_count} txs, "
+                          f"{len(participants)} participants (+{len(unique_users)-before} new unique)")
                     if addr_lower not in faucet_stats:
                         faucet_stats[addr_lower] = {
                             "claims": 0, "latest": 0, "name": "",
@@ -836,12 +1100,11 @@ async def refresh_all_data():
                         }
                     else:
                         faucet_stats[addr_lower]["checkin_txs"] = tx_count
-                        unique_users.update(participants)
                 else:
                     print(f"   🗑️  {chain_name}/{addr_checksum[:10]}... CHECKIN deleted — txs counted, faucet excluded")
             else:
                 print(f"   ❓ {chain_name}/{addr_checksum[:10]}... unknown, skipping")
-                
+
         for tx in chain_claim_txs:
             faucet_cs = safe_checksum(w3, str(tx[0]))
             if not faucet_cs:
@@ -861,7 +1124,7 @@ async def refresh_all_data():
                 }
             faucet_stats[addr_lower]["claims"] += 1
             faucet_stats[addr_lower]["latest"]  = max(faucet_stats[addr_lower]["latest"], int(tx[5]))
-            
+
         for addr_lower, stats in faucet_stats.items():
             if stats["chainId"] != chain_id or stats["claims"] > 0 or stats["checkin_txs"] > 0:
                 continue
@@ -871,130 +1134,99 @@ async def refresh_all_data():
                 chain_tx_count       += checkin_count
                 before = len(unique_users)
                 unique_users.update(checkin_participants)
-                print(f"      🔄 CHECKIN fallback {stats['addr_checksum'][:10]}...: {checkin_count} txs (+{len(unique_users)-before} new unique)")
+                print(f"      🔄 CHECKIN fallback {stats['addr_checksum'][:10]}...: "
+                      f"{checkin_count} txs (+{len(unique_users)-before} new unique)")
 
-        # ── Quest + Quiz: factory txs + getUniqueParticipants on-chain,
-        #    item addresses from Supabase (skips getAllQuests/getAllQuizzes) ───
         quest_quiz_tx_count = 0
-        for kind, cfg_key, supabase_table, addr_col in (
-            ("quest", "Quests", "quests",        "faucet_address"),
-            ("quiz",  "quiz",   "faucet_quizzes", "faucet_address"),
-        ):
+        for kind, cfg_key in (("quest", "Quests"), ("quiz", "quiz")):
             factory_addrs_raw = cfg.get(cfg_key, [])
             if isinstance(factory_addrs_raw, str):
                 factory_addrs_raw = [factory_addrs_raw] if factory_addrs_raw else []
+
+            factory_abi = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
 
             for factory_addr_raw in factory_addrs_raw:
                 if not factory_addr_raw or is_placeholder_address(factory_addr_raw):
                     continue
                 factory_cs = safe_checksum(w3, factory_addr_raw)
                 if not factory_cs:
-                    print(f"   ⚠️  {chain_name} {kind} factory: invalid checksum for {factory_addr_raw}")
                     continue
-
-                print(f"   🔍 {chain_name} {kind.upper()} factory: {factory_cs}")
-
-                factory_abi    = QUEST_FACTORY_ABI if kind == "quest" else QUIZ_FACTORY_ABI
-                item_abi       = QUEST_ABI         if kind == "quest" else QUIZ_ABI
-                per_item_tx_fn = "getQuestTransactions" if kind == "quest" else "getQuizTransactions"
-
-                # ── getAllTransactions() on-chain (factory level) ─────────────
-                factory_txs = []
                 try:
                     fc = w3.eth.contract(address=factory_cs, abi=factory_abi)
                     factory_txs = fc.functions.getAllTransactions().call()
-                    print(f"      ✅ getAllTransactions(): {len(factory_txs)} txs")
+                    quest_quiz_tx_count += len(factory_txs)
+                    chain_tx_count      += len(factory_txs)
+                    print(f"   ✅ {chain_name}/{factory_cs[:10]}... {kind.upper()}-FACTORY: "
+                          f"{len(factory_txs)} txs")
                 except Exception:
-                    print(f"      ⚠️  getAllTransactions() not available on {kind} factory {factory_cs[:10]}... — skipping")
-
-                quest_quiz_tx_count += len(factory_txs)
-                chain_tx_count      += len(factory_txs)
-
-                # ── Item addresses from Supabase (replaces getAllQuests/getAllQuizzes) ──
-                item_addrs = []
-                try:
-                    sb_rows = supabase.table(supabase_table)\
-                        .select(addr_col)\
-                        .execute().data or []
-                    item_addrs = [
-                        r[addr_col] for r in sb_rows
-                        if r.get(addr_col) and not is_placeholder_address(r[addr_col])
-                    ]
-                    print(f"      ✅ {supabase_table} (Supabase): {len(item_addrs)} {kind}s found")
-                except Exception as e:
-                    print(f"      ⚠️  Supabase {supabase_table} fetch failed: {e}")
-
-                before         = len(unique_users)
-                total_item_txs = 0
-
-                for item_raw in item_addrs:
-                    item_cs = safe_checksum(w3, item_raw)
-                    if not item_cs:
-                        continue
-                    try:
-                        # Per-item tx count (optional)
-                        try:
-                            fc_item  = w3.eth.contract(address=factory_cs, abi=factory_abi)
-                            item_txs = fc_item.functions[per_item_tx_fn](
-                                w3.to_checksum_address(item_cs)
-                            ).call()
-                            total_item_txs += len(item_txs)
-                            print(f"      📄 {kind} {item_cs[:10]}...: {len(item_txs)} admin txs")
-                        except Exception:
-                            pass
-
-                        # getUniqueParticipants() on-chain ────────────────────
-                        item_contract = w3.eth.contract(address=item_cs, abi=item_abi)
-                        try:
-                            participants = item_contract.functions.getUniqueParticipants().call()
-                            for p in participants:
-                                unique_users.add(str(p).lower())
-                        except Exception as e:
-                            print(f"         ⚠️ getUniqueParticipants() failed on {item_cs[:10]}...: {e}")
-
-                    except Exception as e:
-                        print(f"      ⚠️  {kind} {item_cs[:10]}... processing failed: {e}")
-                        continue
-
-                after = len(unique_users)
-                print(f"      📊 total per-item admin txs: {total_item_txs}")
-                print(f"      👥 unique_users +{after - before} from {kind} @ {factory_cs[:10]}... (total: {after})")
-                print(f"   ✅ {chain_name}/{factory_cs[:10]}... {'QUEST' if kind == 'quest' else 'QUIZ'}-FACTORY: "
-                      f"{len(factory_txs)} txs | {len(item_addrs)} {kind}s | +{after - before} users")
+                    print(f"   ⚠️  {chain_name} {kind} factory {factory_cs[:10]}... "
+                          f"getAllTransactions() failed — skipping tx count")
 
         if quest_quiz_tx_count > 0:
             print(f"   📊 {chain_name}: +{quest_quiz_tx_count} txs from quest/quiz factories")
-        # ── End Quest/Quiz block ────────────────────────────────────────────
 
         all_txs_count += chain_tx_count
-        network_stats.append({"name": chain_name, "chainId": chain_id, "totalTransactions": chain_tx_count, "color": chain_color})
+        network_stats.append({"name": chain_name, "chainId": chain_id,
+                               "totalTransactions": chain_tx_count, "color": chain_color})
         network_faucets_list.append({"network": chain_name, "faucets": chain_faucet_count})
-        print(f"   ✅ {chain_name}: {chain_tx_count} txs total (faucet + quest + quiz), {chain_faucet_count} active faucets")
-        
+        print(f"   ✅ {chain_name}: {chain_tx_count} txs total, {chain_faucet_count} active faucets")
+
+    # ── Quest + Quiz unique participants ──
+    print(f"\n📊 [refresh_all_data] Collecting unique quest/quiz participants...")
+    users_from_faucets = len(unique_users)
+
+    quest_quiz_participants = await collect_quest_quiz_unique_participants()
+
+    already_seen  = quest_quiz_participants & unique_users
+    net_new       = quest_quiz_participants - unique_users
+    unique_users.update(quest_quiz_participants)
+
+    print(
+        f"\n{'─'*60}\n"
+        f"  👥 Unique user breakdown:\n"
+        f"     Faucet claims + checkins : {users_from_faucets:>6}\n"
+        f"     Quest/Quiz participants  : {len(quest_quiz_participants):>6}\n"
+        f"       └─ already in faucets : {len(already_seen):>6}\n"
+        f"       └─ net new (quest/quiz): {len(net_new):>6}\n"
+        f"     TOTAL unique users       : {len(unique_users):>6}\n"
+        f"{'─'*60}"
+    )
+
     print(f"🔤 Fetching names for {len(faucet_stats)} faucets...")
     for addr_lower, stats in faucet_stats.items():
         stats["name"] = get_faucet_name_sync(stats["w3"], stats["addr_checksum"])
-        
-    # ── User chart ───────────────────────────────────────────────────────────
+
+    # ── Faucet claim dates (existing) ──
     first_claim_per_user = {}
     for tx in all_claims:
         claimer  = str(tx[2]).lower()
         date_str = datetime.fromtimestamp(int(tx[5])).strftime("%Y-%m-%d")
         if claimer not in first_claim_per_user or date_str < first_claim_per_user[claimer]:
             first_claim_per_user[claimer] = date_str
-            
+
+    # ── Merge quest/quiz participant dates ──
+    loop = asyncio.get_running_loop()
+    quest_quiz_dates = await loop.run_in_executor(
+        None, _fetch_quest_quiz_participant_dates
+    )
+    merged_qq = 0
+    for addr, date_str in quest_quiz_dates.items():
+        if addr not in first_claim_per_user or date_str < first_claim_per_user[addr]:
+            first_claim_per_user[addr] = date_str
+            merged_qq += 1
+    print(f"   📅 Merged {merged_qq} quest/quiz-only dated users into users_chart")
+
     new_users_by_date = defaultdict(int)
     for date_str in first_claim_per_user.values():
         new_users_by_date[date_str] += 1
-        
+
     users_chart = []
     cumulative  = 0
     for date_str in sorted(new_users_by_date.keys()):
         new = new_users_by_date[date_str]
         cumulative += new
         users_chart.append({"date": date_str, "newUsers": new, "cumulativeUsers": cumulative})
-        
-    # ── Rankings + pie ───────────────────────────────────────────────────────
+
     total_claims   = len(all_claims)
     sorted_faucets = sorted(faucet_stats.items(), key=lambda x: x[1]["latest"], reverse=True)
     rankings = [
@@ -1009,7 +1241,7 @@ async def refresh_all_data():
         }
         for i, (addr, stats) in enumerate(sorted_faucets)
     ]
-    
+
     sorted_by_claims = sorted(faucet_stats.items(), key=lambda x: x[1]["claims"], reverse=True)
     pie = [
         {
@@ -1020,12 +1252,13 @@ async def refresh_all_data():
         }
         for addr, stats in sorted_by_claims[:10]
     ]
-    
+
     others_count   = sum(s["claims"] for _, s in sorted_by_claims[10:])
     others_faucets = len(sorted_by_claims) - 10
     if others_count > 0:
-        pie.append({"name": f"Others ({others_faucets})", "value": others_count, "faucetAddress": "others", "network": ""})
-        
+        pie.append({"name": f"Others ({others_faucets})", "value": others_count,
+                    "faucetAddress": "others", "network": ""})
+
     dashboard_data = {
         "total_claims":         total_claims,
         "total_unique_users":   len(unique_users),
@@ -1038,9 +1271,10 @@ async def refresh_all_data():
         "network_faucets":      network_faucets_list,
         "last_updated":         datetime.utcnow().isoformat(),
     }
-    print(f"✅ Done: {total_claims} claims | {len(unique_users)} unique users | {dashboard_data['total_faucets']} faucets | {all_txs_count} txs")
+    print(f"✅ Done: {total_claims} claims | {len(unique_users)} unique users | "
+          f"{dashboard_data['total_faucets']} faucets | {all_txs_count} txs")
     save_dashboard_to_supabase(dashboard_data)
-
+       
 @app.get("/api/quests")
 async def get_all_quests_for_dashboard():
     """All quests for the analytics dashboard table."""
@@ -1049,7 +1283,6 @@ async def get_all_quests_for_dashboard():
     try:
         quest_rows = supabase.table("quests").select("*").execute().data or []
 
-        # participant counts
         p_rows = supabase.table("quest_participants")\
             .select("quest_address, wallet_address").execute().data or []
         participant_counts: dict = {}
@@ -1057,7 +1290,6 @@ async def get_all_quests_for_dashboard():
             addr = p["quest_address"]
             participant_counts[addr] = participant_counts.get(addr, 0) + 1
 
-        # task counts
         t_rows = supabase.table("faucet_tasks")\
             .select("faucet_address, tasks").execute().data or []
         task_counts: dict = {
@@ -1099,7 +1331,6 @@ async def get_all_quizzes_for_dashboard():
         if not quiz_ids:
             return {"success": True, "quizzes": [], "count": 0}
 
-        # participant counts
         p_rows = supabase.table("faucet_quiz_participants")\
             .select("quiz_id").execute().data or []
         player_counts: dict = {}
@@ -1107,7 +1338,6 @@ async def get_all_quizzes_for_dashboard():
             qid = p["quiz_id"]
             player_counts[qid] = player_counts.get(qid, 0) + 1
 
-        # question counts
         q_rows = supabase.table("faucet_quiz_questions")\
             .select("quiz_id").execute().data or []
         question_counts: dict = {}
@@ -1115,7 +1345,6 @@ async def get_all_quizzes_for_dashboard():
             qid = q["quiz_id"]
             question_counts[qid] = question_counts.get(qid, 0) + 1
 
-        # rewards
         r_rows = supabase.table("faucet_quiz_rewards")\
             .select("quiz_id, pool_amount, token_symbol").execute().data or []
         reward_map: dict = {
@@ -1242,37 +1471,40 @@ def load_from_supabase() -> Optional[dict]:
         "last_updated":         last_updated,
     }
 
-# ====================== ANALYTICS ENDPOINT ======================
-
 # ====================== ANALYTICS ENDPOINT (Supabase-driven) ======================
 
 async def build_faucet_analytics() -> dict:
     try:
+        # ── FIX: Fetch deleted set to gate network_faucets rows ──
+        deleted_set = await fetch_deleted_faucets()
+
+        # ── Single fetch of meta — use as the ONE source of truth for totals ──
         meta_rows = supabase.table("dashboard_meta").select("*").eq("id", 1).execute().data
         meta = meta_rows[0] if meta_rows else {}
 
-        # ── Use dashboard_meta as single source of truth for all totals ──
-        total_faucets     = meta.get("total_faucets", 0)       # ← was len(faucet_rows)
+        # ── Faucet rows from network_faucets — filter out deleted ──
+        all_faucet_rows = supabase.table("network_faucets").select("*").execute().data or []
+        faucet_rows = [
+            f for f in all_faucet_rows
+            if f.get("faucet_address", "").lower() not in deleted_set
+        ]
+
+        # FIX: Use dashboard_meta as the single source of truth for all totals
+        # so that faucet count, unique users, and drops are ALWAYS consistent
+        # with what refresh_all_data computed (which already excluded deleted faucets)
+        total_faucets     = meta.get("total_faucets", 0)
         total_drops       = meta.get("total_claims", 0)
         unique_users      = meta.get("total_unique_users", 0)
         avg_drop_per_user = round(total_drops / unique_users, 2) if unique_users else 0
 
-        # Still need faucet_rows for type split + factory_type lookup
-        faucet_rows = supabase.table("network_faucets").select("*").execute().data or []
-
-        total_faucets = len(faucet_rows)
-
-        # ── Totals from dashboard_meta (already aggregated by refresh_all_data) ──
-        meta_rows = supabase.table("dashboard_meta").select("*").eq("id", 1).execute().data
-        meta = meta_rows[0] if meta_rows else {}
-        total_drops  = meta.get("total_claims", 0)
-        unique_users = meta.get("total_unique_users", 0)
-        avg_drop_per_user = round(total_drops / unique_users, 2) if unique_users else 0
-
         # ── Monthly volume: aggregate claim_data by month + factory_type ──
-        claim_rows = supabase.table("claim_data").select("*").execute().data or []
+        # Filter claim_data to exclude deleted faucets too
+        claim_rows_raw = supabase.table("claim_data").select("*").execute().data or []
+        claim_rows = [
+            r for r in claim_rows_raw
+            if r.get("faucet_address", "").lower() not in deleted_set
+        ]
 
-        # Build a factory_type lookup from network_faucets
         faucet_type_map = {
             f["faucet_address"]: f.get("factory_type", "dropcode")
             for f in faucet_rows
@@ -1307,7 +1539,7 @@ async def build_faucet_analytics() -> dict:
             key=lambda x: MONTH_ORDER.index(x["month"]) if x["month"] in MONTH_ORDER else 99
         )[-7:]
 
-        # ── Type split (% of faucets by factory_type) ──
+        # ── Type split (% of live faucets by factory_type) ──
         type_counts: dict = {"dropcode": 0, "droplist": 0, "custom": 0}
         for f in faucet_rows:
             ft = f.get("factory_type", "dropcode")
@@ -1320,7 +1552,7 @@ async def build_faucet_analytics() -> dict:
             {"name": "Custom",   "value": round(type_counts["custom"]   / total_typed * 100)},
         ]
 
-        # ── Top networks by claims (from claim_data) ──
+        # ── Top networks by claims (excluding deleted) ──
         net_claims: dict = {}
         for row in claim_rows:
             net = row.get("network", "Unknown")
@@ -1330,7 +1562,7 @@ async def build_faucet_analytics() -> dict:
             key=lambda x: x["value"], reverse=True
         )[:5]
 
-        # ── Recent activity: top 5 faucets by latest_claim_time ──
+        # ── Recent activity: top 5 live faucets by latest_claim_time ──
         sorted_claims = sorted(
             claim_rows,
             key=lambda r: r.get("latest_claim_time") or 0,
@@ -1372,28 +1604,23 @@ async def build_quest_analytics() -> dict:
     Tables used: quests, quest_participants, faucet_tasks, submissions
     """
     try:
-        # ── Fetch all quests ──
         quest_rows = supabase.table("quests").select("*").execute().data or []
 
         active_quests = sum(1 for q in quest_rows if q.get("is_active") and not q.get("is_draft"))
         total_quests  = len([q for q in quest_rows if not q.get("is_draft")])
 
-        # ── Participants across all quests ──
         participant_rows = supabase.table("quest_participants").select("wallet_address, quest_address, points, updated_at").execute().data or []
         unique_participants = len({r["wallet_address"] for r in participant_rows})
 
-        # ── Completions from submissions ──
         submission_rows = supabase.table("submissions").select("faucet_address, wallet_address, status, submitted_at").execute().data or []
         completions = sum(1 for s in submission_rows if s.get("status") == "approved")
 
-        # ── Average tasks per quest ──
         task_rows = supabase.table("faucet_tasks").select("faucet_address, tasks").execute().data or []
         task_count_map = {r["faucet_address"]: len(r.get("tasks") or []) for r in task_rows}
         avg_tasks = round(
             sum(task_count_map.values()) / len(task_count_map), 1
         ) if task_count_map else 0
 
-        # ── Weekly completions: group approved submissions by ISO week ──
         WEEK_LABELS = ["W1","W2","W3","W4","W5","W6","W7","W8"]
         weekly_map: dict = {}
         for sub in submission_rows:
@@ -1416,7 +1643,6 @@ async def build_quest_analytics() -> dict:
         for i, w in enumerate(weekly_completions):
             w["week"] = f"W{i + 1}"
 
-        # ── Task type breakdown (from all faucet_tasks) ──
         task_type_counts: dict = {}
         for row in task_rows:
             for task in (row.get("tasks") or []):
@@ -1428,13 +1654,11 @@ async def build_quest_analytics() -> dict:
             key=lambda x: x["value"], reverse=True
         )[:5]
 
-        # ── Top quests by participant count ──
         quest_participant_counts: dict = {}
         for r in participant_rows:
             addr = r["quest_address"]
             quest_participant_counts[addr] = quest_participant_counts.get(addr, 0) + 1
 
-        # Map addresses to titles
         quest_title_map = {q["faucet_address"]: q.get("title", q["faucet_address"][:10]) for q in quest_rows}
         top_quests = sorted(
             [
@@ -1444,7 +1668,6 @@ async def build_quest_analytics() -> dict:
             key=lambda x: x["value"], reverse=True
         )[:5]
 
-        # ── All quests list for the table ──
         all_quests = []
         for q in quest_rows:
             if q.get("is_draft"):
@@ -1479,16 +1702,7 @@ async def build_quest_analytics() -> dict:
 
 
 async def build_quiz_analytics() -> dict:
-    """
-    Builds QuizAnalytics entirely from Supabase / asyncpg pool.
-    Falls back to returning zeros if the pool isn't available yet.
-    Tables used: faucet_quizzes, faucet_quiz_participants, faucet_quiz_answers,
-                 faucet_quiz_rewards, faucet_quiz_reward_tiers
-    """
-    # The indexer uses asyncpg pool from main backend; if not available, skip
-    # Instead we query via Supabase REST (anon/service key covers these tables)
     try:
-        # ── All quizzes ──
         quiz_rows = supabase.table("faucet_quizzes").select(
             "id, code, title, status, chain_id, faucet_address, creator_address, "
             "is_ai_generated, max_participants, time_per_question, created_at, "
@@ -1498,22 +1712,16 @@ async def build_quiz_analytics() -> dict:
         total_quizzes = len(quiz_rows)
         quiz_id_map   = {q["id"]: q for q in quiz_rows}
 
-        # ── Participants / attempts ──
         participant_rows = supabase.table("faucet_quiz_participants").select(
             "quiz_id, wallet_address, final_rank, final_points, points"
         ).execute().data or []
 
         total_attempts = len(participant_rows)
 
-        # ── Answers for score distribution + daily spread ──
         answer_rows = supabase.table("faucet_quiz_answers").select(
             "quiz_id, wallet_address, is_correct, points_earned, answered_at"
         ).execute().data or []
 
-        # ── Score distribution (map points_earned → 0–10 bands) ──
-        # We derive a notional 0–10 score per participant from final_points / max_possible
-        # Since we don't store a /10 score directly, we use is_correct ratio across answers
-        # Group answers by (quiz_id, wallet_address)
         from collections import defaultdict
         answer_map: dict = defaultdict(lambda: {"correct": 0, "total": 0})
         for a in answer_rows:
@@ -1547,7 +1755,6 @@ async def build_quiz_analytics() -> dict:
             for i in range(11)
         ]
 
-        # ── Daily attempts from answered_at timestamps ──
         DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
         daily_map: dict = {d: 0 for d in DAYS}
         for a in answer_rows:
@@ -1563,7 +1770,6 @@ async def build_quiz_analytics() -> dict:
                 continue
         daily_attempts = [{"day": d, "value": daily_map[d]} for d in DAYS]
 
-        # ── Top categories by participant count per quiz ──
         category_map: dict = {}
         participant_counts_by_quiz: dict = defaultdict(int)
         for p in participant_rows:
@@ -1580,7 +1786,6 @@ async def build_quiz_analytics() -> dict:
             key=lambda x: x["value"], reverse=True
         )[:5]
 
-        # ── All quizzes list for the table ──
         all_quizzes = []
         for q in quiz_rows:
             all_quizzes.append({
@@ -1645,10 +1850,8 @@ async def get_analytics(background_tasks: BackgroundTasks):
     )
 
     if cache_stale and not _analytics_cache:
-        # First ever call — block until we have data
         await refresh_analytics_cache()
     elif cache_stale:
-        # Stale but we have something — refresh in background
         background_tasks.add_task(refresh_analytics_cache)
 
     return _analytics_cache
@@ -1681,12 +1884,19 @@ async def get_network_faucets(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     try:
+        # FIX: Fetch deleted set and filter them out of results
+        deleted_set = await fetch_deleted_faucets()
+
         q = supabase.table("network_faucets").select("*").eq("chain_id", chain_id)
         if active_only:
             q = q.eq("is_claim_active", True)
         if factory_type:
             q = q.eq("factory_type", factory_type)
         rows = q.order("start_time", desc=True).execute().data or []
+
+        # Filter deleted
+        rows = [r for r in rows if r.get("faucet_address", "").lower() not in deleted_set]
+
         if search:
             s = search.strip().lower()
             rows = [r for r in rows if s in (r.get("faucet_name") or "").lower() or s in (r.get("token_symbol") or "").lower() or s in (r.get("faucet_address") or "").lower()]
@@ -1702,6 +1912,11 @@ async def get_faucet_detail(faucet_address: str):
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     try:
+        # FIX: Gate deleted faucets at the API level too
+        deleted_set = await fetch_deleted_faucets()
+        if faucet_address.lower() in deleted_set:
+            raise HTTPException(status_code=404, detail=f"Faucet {faucet_address} not found.")
+
         rows = supabase.table("faucet_details").select("*").eq("faucet_address", faucet_address.lower()).limit(1).execute().data
         if not rows:
             raise HTTPException(status_code=404, detail=f"Faucet {faucet_address} not found.")
@@ -1719,12 +1934,15 @@ async def force_sync_faucet(faucet_address: str):
     """
     print(f"🔄 [Force Sync] Requested for faucet {faucet_address}")
 
+    # FIX: Gate deleted faucets — don't sync them back in
+    deleted_set = await fetch_deleted_faucets()
+    if faucet_address.lower() in deleted_set:
+        return {"success": False, "error": "Faucet is deleted"}
+
     try:
-        # 1. Fetch ALL required identifying info (chain, factory, type)
         result = supabase.table("network_faucets").select("chain_id, factory_address, factory_type").eq("faucet_address", faucet_address.lower()).execute()
         
         if not result.data:
-            # Fallback: try to find in faucet_details
             result = supabase.table("faucet_details").select("chain_id, factory_address, factory_type").eq("faucet_address", faucet_address.lower()).execute()
             
         if not result.data:
@@ -1735,7 +1953,6 @@ async def force_sync_faucet(faucet_address: str):
         factory_address = row["factory_address"]
         factory_type = row["factory_type"]
 
-        # --- FIX 1: Create the Web3 instance for this specific chain ---
         cfg = CHAIN_CONFIGS_V2.get(chain_id) or CHAIN_CONFIGS.get(chain_id)
         if not cfg:
             return {"success": False, "error": "Unsupported chain ID"}
@@ -1745,7 +1962,6 @@ async def force_sync_faucet(faucet_address: str):
         except Exception as e:
             return {"success": False, "error": f"RPC connection failed: {e}"}
 
-        # --- FIX 2: Pass w3 as the first argument, and DO NOT await (it is a sync function) ---
         detail = fetch_faucet_details_sync(
             w3,
             faucet_address, 
@@ -1755,12 +1971,10 @@ async def force_sync_faucet(faucet_address: str):
         )
 
         if not detail:
-            return {"success": False, "error": "Failed to fetch on-chain data"}
+            return {"success": False, "error": "Failed to fetch on-chain data (faucet may be deleted on-chain)"}
 
-        # --- FIX 3: Await the enrichment function and pass it inside a list ---
         detail = (await _enrich_with_metadata([detail]))[0]
 
-        # 4. Upsert both critical tables
         supabase.table("network_faucets").upsert({
             "faucet_address": detail["faucet_address"],
             "chain_id": detail["chain_id"],
@@ -1798,12 +2012,19 @@ async def get_all_faucets(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     try:
+        # FIX: Filter deleted faucets from listing
+        deleted_set = await fetch_deleted_faucets()
+
         q = supabase.table("network_faucets").select("*")
         if active_only:
             q = q.eq("is_claim_active", True)
         if factory_type:
             q = q.eq("factory_type", factory_type)
         rows = q.order("start_time", desc=True).execute().data or []
+
+        # Filter deleted
+        rows = [r for r in rows if r.get("faucet_address", "").lower() not in deleted_set]
+
         if search:
             s = search.strip().lower()
             rows = [r for r in rows if s in (r.get("faucet_name") or "").lower() or s in (r.get("token_symbol") or "").lower() or s in (r.get("faucet_address") or "").lower()]
@@ -1833,6 +2054,33 @@ async def manual_refresh():
         "last_updated": dashboard_data.get("last_updated"),
     }
 
+@app.get("/api/refresh/dashboard")
+async def refresh_dashboard():
+    """Refresh all dashboard data (faucet page button)."""
+    await refresh_all_data()
+    return {"status": "complete", "last_updated": dashboard_data.get("last_updated")}
+
+@app.get("/api/refresh/network-faucets")
+async def refresh_network_faucets_endpoint():
+    """Refresh all network faucets (network page button)."""
+    await refresh_network_faucets()
+    return {"status": "complete"}
+
+@app.get("/api/refresh/analytics")
+async def refresh_analytics_endpoint():
+    """Refresh analytics cache (home page button)."""
+    await refresh_analytics_cache()
+    return {"status": "complete", "last_updated": _analytics_cache.get("last_updated")}
+
+@app.get("/api/refresh/claims")
+async def refresh_claims_endpoint():
+    """Refresh claims cache (faucet list page button)."""
+    await refresh_claims_cache()
+    return {
+        "status": "complete",
+        "last_updated": claims_last_updated.isoformat() if claims_last_updated else None,
+    }
+
 @app.post("/sync-faucet/{faucet_address}")
 async def sync_single_faucet(faucet_address: str):
     """
@@ -1842,6 +2090,7 @@ async def sync_single_faucet(faucet_address: str):
     """
     print(f"🔄 [sync_single_faucet] Forced sync requested for {faucet_address}")
 
+    # FIX: Gate deleted faucets
     deleted = await fetch_deleted_faucets()
     if faucet_address.lower() in deleted:
         return {"success": False, "message": "Faucet was deleted"}
@@ -1852,30 +2101,26 @@ async def sync_single_faucet(faucet_address: str):
         except:
             continue
 
-        # Quick sanity check that this is actually a faucet
         try:
             contract = w3.eth.contract(
                 address=w3.to_checksum_address(faucet_address),
                 abi=FAUCET_ABI
             )
-            _ = contract.functions.name().call()  # will fail if not a faucet
+            _ = contract.functions.name().call()
         except:
             continue
 
-        # Use your existing powerful fetch function
         detail = fetch_faucet_details_sync(
             w3,
             faucet_address,
-            "0x0000000000000000000000000000000000000000",  # placeholder
-            "dropcode",  # will be corrected by metadata later
+            "0x0000000000000000000000000000000000000000",
+            "dropcode",
             chain_id
         )
 
         if detail:
-            # Enrich with metadata (description + image)
             detail = (await _enrich_with_metadata([detail]))[0]
 
-            # Save to both tables
             supabase.table("network_faucets").upsert({
                 "faucet_address": detail["faucet_address"],
                 "chain_id": chain_id,
@@ -1905,46 +2150,33 @@ async def sync_single_faucet(faucet_address: str):
     return {"success": False, "message": "Faucet not found on any supported chain"}
 
 
-
-
 # ── Blog endpoints (Supabase version — no asyncpg) ─────────────
 @app.post("/api/blog/upload-image")
 async def upload_blog_image(
     file: UploadFile = File(...),
     sessionToken: str = Form(...),
 ):
-    """
-    Uploads an image to Supabase Storage and returns its public URL.
-    Requires a valid admin session token.
-    Bucket name: "blog-images" — create it in Supabase Dashboard →
-      Storage → New bucket → name it "blog-images" → set to Public.
-    """
     if not is_valid_session(sessionToken):
         raise HTTPException(status_code=401, detail="Not authenticated")
  
     if not supabase:
         raise HTTPException(status_code=503, detail="Storage not available")
  
-    # ── Validate file type ──
     ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"}
     content_type = file.content_type or "application/octet-stream"
     if content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type}")
  
-    # ── Validate file size (5 MB) ──
     MAX_BYTES = 5 * 1024 * 1024
     data = await file.read()
     if len(data) > MAX_BYTES:
         raise HTTPException(status_code=400, detail="File too large (max 5 MB)")
  
-    # ── Build a unique storage path ──
     ext = mimetypes.guess_extension(content_type) or ".jpg"
-    # mimetypes returns ".jpe" for jpeg on some systems — normalise it
     ext = {".jpe": ".jpg", ".jpeg": ".jpg"}.get(ext, ext)
     unique_name = f"{uuid.uuid4().hex}{ext}"
     storage_path = f"posts/{unique_name}"
  
-    # ── Upload to Supabase Storage ──
     try:
         supabase.storage.from_("blog-images").upload(
             path=storage_path,
@@ -1954,7 +2186,6 @@ async def upload_blog_image(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Storage upload failed: {e}")
  
-    # ── Build public URL ──
     public_url = (
         f"{os.getenv('SUPABASE_URL')}/storage/v1/object/public/blog-images/{storage_path}"
     )
@@ -1968,7 +2199,7 @@ async def blog_login(body: BlogLoginRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     token = generate_session_token()
-    expires_at = create_session(token)  # ← persisted to Supabase
+    expires_at = create_session(token)
     
     return {
         "success": True,
@@ -1983,7 +2214,7 @@ async def blog_login(body: BlogLoginRequest):
 
 @app.post("/api/blog/logout")
 async def blog_logout(sessionToken: str):
-    delete_session(sessionToken)  # ← deletes from Supabase
+    delete_session(sessionToken)
     return {"success": True}
 
 
@@ -2020,12 +2251,8 @@ async def extract_url_metadata(body: ExtractUrlRequest):
             }
         ) as client:
             
-            # ==========================================
-            # 1. TWITTER / X EXTRACTION STRATEGY
-            # ==========================================
             if is_twitter:
                 path_parts = parsed_url.path.strip("/").split("/")
-                # Ensure it's a valid tweet URL (e.g., /username/status/1234567890)
                 if len(path_parts) >= 3 and path_parts[1] == "status":
                     api_url = f"https://api.vxtwitter.com/{path_parts[0]}/status/{path_parts[2]}"
                     res = await client.get(api_url)
@@ -2051,15 +2278,11 @@ async def extract_url_metadata(body: ExtractUrlRequest):
                         "tags": ["twitter", "tweet"]
                     }}
             
-            # ==========================================
-            # 2. STANDARD ARTICLE EXTRACTION STRATEGY
-            # ==========================================
             res = await client.get(body.url)
             res.raise_for_status()
 
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # ── Meta helpers ────────────────────────────────────────
         def og(prop):
             tag = soup.find("meta", property=f"og:{prop}")
             return tag["content"].strip() if tag and tag.get("content") else ""
@@ -2083,7 +2306,6 @@ async def extract_url_metadata(body: ExtractUrlRequest):
 
         author = meta("author") or og("site_name") or ""
 
-        # Favicon
         favicon = ""
         link_icon = soup.find("link", rel=lambda r: r and "icon" in r.lower() if r else False)
         if link_icon and link_icon.get("href"):
@@ -2094,7 +2316,6 @@ async def extract_url_metadata(body: ExtractUrlRequest):
                 p = urlparse(body.url)
                 favicon = f"{p.scheme}://{p.netloc}{href}"
 
-        # ── Aggressive content extraction ───────────────────────
         noise_tags = [
             "script", "style", "noscript", "nav", "header", "footer",
             "aside", "form", "button", "input", "select", "textarea",
@@ -2139,16 +2360,11 @@ async def extract_url_metadata(body: ExtractUrlRequest):
         ]
 
         def extract_text_from_element(el) -> str:
-            """Extract clean paragraphs and structure into Markdown."""
             lines = []
             for node in el.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"]):
                 text = node.get_text(separator=" ", strip=True)
-                
-                # Filter out very short strings unless they are headers
                 if len(text) < 20 and node.name not in ["h1", "h2", "h3", "h4", "h5", "h6"]:
                     continue
-                    
-                # Format Topics and Subtopics as Markdown
                 if node.name == "h1":
                     lines.append(f"# {text}")
                 elif node.name == "h2":
@@ -2163,7 +2379,6 @@ async def extract_url_metadata(body: ExtractUrlRequest):
                     lines.append(f"- {text}")
                 else:
                     lines.append(text)
-                    
             return "\n\n".join(lines)
 
         for selector_type, selector_value in content_selectors:
@@ -2199,7 +2414,6 @@ async def extract_url_metadata(body: ExtractUrlRequest):
             if body_tag:
                 content = extract_text_from_element(body_tag)
 
-        # Clean up
         content = re.sub(r"[ \t]{2,}", " ", content)
         content = re.sub(r"\n{3,}", "\n\n", content).strip()
 
@@ -2208,7 +2422,7 @@ async def extract_url_metadata(body: ExtractUrlRequest):
         return {"success": True, "data": {
             "title":         title,
             "excerpt":       excerpt[:300],
-            "content":       content[:15000], # Increased slightly to accommodate Markdown formatting
+            "content":       content[:15000],
             "coverImageUrl": cover,
             "authorName":    author,
             "authorAvatar":  favicon,
@@ -2274,14 +2488,12 @@ async def get_blog_posts(page: int = 1, limit: int = 12, tag: str = None):
         result = query.execute()
         posts  = result.data or []
 
-        # Get total count
         count_query = supabase.table("blog_posts").select("id", count="exact").eq("is_published", True)
         if tag:
             count_query = count_query.contains("tags", [tag])
         count_result = count_query.execute()
         total = count_result.count or 0
 
-        # Attach likes + views counts
         for post in posts:
             likes = supabase.table("blog_post_likes").select("id", count="exact").eq("post_id", post["id"]).execute()
             views = supabase.table("blog_post_views").select("id", count="exact").eq("post_id", post["id"]).execute()
@@ -2305,37 +2517,40 @@ claims_last_updated: Optional[datetime] = None
 async def refresh_claims_cache():
     """
     Fetches all claims across all networks and enriches them with 
-    Supabase metadata (names, symbols, decimals, AND SLUGS).
+    Supabase metadata. FIX: Filters out deleted faucets.
     """
     global global_claims_cache, claims_last_updated
     print(f"🔄 [refresh_claims_cache] Fetching all claims from RPCs...")
     
     loop = asyncio.get_running_loop()
 
+    # FIX: Fetch deleted set once before the sync executor
+    deleted_set = await fetch_deleted_faucets()
+
     def _fetch_claims_sync():
         fetched = []
         
-        # 1. Pre-fetch Supabase metadata for quick enrichment (This is our "LEFT JOIN")
         faucet_meta_map = {}
         if supabase:
             try:
-                # 👈 Added 'slug' to the select query
                 resp = supabase.table("faucet_details").select(
                     "faucet_address, faucet_name, token_symbol, token_decimals, slug" 
                 ).execute()
                 
                 if resp.data:
                     for row in resp.data:
-                        faucet_meta_map[row["faucet_address"].lower()] = {
-                            "name": row.get("faucet_name", "Unknown Faucet"),
-                            "symbol": row.get("token_symbol", "TOKEN"),
-                            "decimals": row.get("token_decimals", 18),
-                            "slug": row.get("slug") # 👈 Store the slug in our lookup map
-                        }
+                        addr = row["faucet_address"].lower()
+                        # FIX: Don't include deleted faucets in the meta map
+                        if addr not in deleted_set:
+                            faucet_meta_map[addr] = {
+                                "name": row.get("faucet_name", "Unknown Faucet"),
+                                "symbol": row.get("token_symbol", "TOKEN"),
+                                "decimals": row.get("token_decimals", 18),
+                                "slug": row.get("slug")
+                            }
             except Exception as e:
                 print(f"⚠️ [refresh_claims_cache] Supabase meta fetch failed: {e}")
 
-        # 2. Iterate through chains and factories to get on-chain claims
         for chain_id, cfg in CHAIN_CONFIGS.items():
             chain_name = cfg["name"]
             try:
@@ -2351,22 +2566,25 @@ async def refresh_claims_cache():
                 if not addr_checksum:
                     continue
 
-                # Use existing helper to extract factory data
                 contract_type, factory_txs, _ = detect_and_call(w3, addr_checksum)
 
                 if contract_type in ("factory", "quest") and factory_txs:
                     for tx in factory_txs:
                         tx_type = str(tx[1]).lower()
-                        # Target standard claims and active claims
                         if "claim" in tx_type:
                             faucet_addr = str(tx[0])
-                            # 👈 Look up the metadata using the contract address
-                            meta = faucet_meta_map.get(faucet_addr.lower(), {})
+                            addr_lower = faucet_addr.lower()
+
+                            # FIX: Skip claims from deleted faucets
+                            if addr_lower in deleted_set:
+                                continue
+
+                            meta = faucet_meta_map.get(addr_lower, {})
                             
                             fetched.append({
                                 "faucet": faucet_addr,
                                 "faucet_name": meta.get("name", f"Faucet {faucet_addr[:6]}"),
-                                "slug": meta.get("slug"), # 👈 Attach the slug to the final response!
+                                "slug": meta.get("slug"),
                                 "claimer": str(tx[2]),
                                 "amount": str(tx[3]),
                                 "token_symbol": meta.get("symbol", "TOKEN"),
@@ -2380,29 +2598,22 @@ async def refresh_claims_cache():
         return fetched
 
     try:
-        # Run blocking RPC calls in executor to keep FastAPI fast
         new_claims = await loop.run_in_executor(None, _fetch_claims_sync)
-        
-        # Sort newest first
         new_claims.sort(key=lambda x: x["time"], reverse=True)
-        
         global_claims_cache = new_claims
         claims_last_updated = datetime.utcnow()
         print(f"✅ [refresh_claims_cache] Successfully cached {len(new_claims)} claims.")
     except Exception as e:
         print(f"⚠️ [refresh_claims_cache] Failed: {e}")
+
 @app.get("/api/claims")
 async def get_all_claims(
     limit: int = Query(100, ge=1, le=5000, description="Max claims to return"),
     background_tasks: BackgroundTasks = None
 ):
-    """
-    Returns the globally cached list of all recent drops/claims.
-    Auto-refreshes in the background if the cache is older than 10 minutes.
-    """
     global global_claims_cache, claims_last_updated
 
-    CACHE_TTL_SECONDS = 10 * 60  # 10 minutes
+    CACHE_TTL_SECONDS = 10 * 60
 
     cache_stale = (
         not global_claims_cache
@@ -2412,10 +2623,8 @@ async def get_all_claims(
 
     if cache_stale:
         if not global_claims_cache:
-            # If server just started and has NO data, wait for the fetch
             await refresh_claims_cache()
         else:
-            # If we have stale data, return it instantly and refresh in the background
             if background_tasks:
                 background_tasks.add_task(refresh_claims_cache)
 
@@ -2443,13 +2652,11 @@ async def get_blog_post(slug: str):
         post = result.data
         post_id = post["id"]
 
-        # Record view (fire and forget)
         try:
             supabase.table("blog_post_views").insert({"post_id": post_id}).execute()
         except Exception:
             pass
 
-        # Attach counts
         likes = supabase.table("blog_post_likes").select("id", count="exact").eq("post_id", post_id).execute()
         views = supabase.table("blog_post_views").select("id", count="exact").eq("post_id", post_id).execute()
         post["likes_count"] = likes.count or 0
@@ -2501,7 +2708,6 @@ async def like_blog_post(slug: str, fingerprint: str):
             }).execute()
             liked = True
 
-        # ← ADD THIS: fetch fresh count and return it
         fresh = supabase.table("blog_post_likes").select("id", count="exact").eq("post_id", post_id).execute()
         return {"success": True, "liked": liked, "likes_count": fresh.count or 0}
 
@@ -2510,7 +2716,7 @@ async def like_blog_post(slug: str, fingerprint: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-    # ====================== SCHEDULER ======================
+# ====================== SCHEDULER ======================
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(refresh_all_data,        "interval", hours=3)
@@ -2535,16 +2741,14 @@ async def startup():
                 print("✅ [Startup] Loaded initial data from Supabase")
         except Exception as e:
             print(f"⚠️ [Startup] Supabase cache empty or failed: {e}")
-
-    asyncio.create_task(refresh_all_data())
-    asyncio.create_task(refresh_network_faucets())
-    asyncio.create_task(refresh_analytics_cache())
-    asyncio.create_task(refresh_claims_cache())
-
+    #asyncio.create_task(refresh_all_data())
+    #asyncio.create_task(refresh_network_faucets())
+    #asyncio.create_task(refresh_analytics_cache())
+    #asyncio.create_task(refresh_claims_cache())
 
 # ====================== RENDER.COM COMPATIBLE RUN ======================
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv(8001))
+    port = int(os.getenv("PORT", 8001))  # FIX: was int(os.getenv(8001)) — missing default string key
     print(f"🚀 Starting FaucetDrop API on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
